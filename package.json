@@ -1,0 +1,22 @@
+{
+  "name": "liusheng-player",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 1420 --strictPort",
+    "build": "node --check src/main.js && node --check src/mini-player.js && vite build",
+    "tauri": "tauri",
+    "app:dev": "tauri dev",
+    "app:build": "tauri build",
+    "check": "node --check src/main.js && node --check src/mini-player.js && node scripts/check-music.mjs && cargo check --manifest-path src-tauri/Cargo.toml",
+    "app:build:mac": "bash scripts/package-mac.sh"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.11.0"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.11.4",
+    "vite": "^6.4.1"
+  }
+}

@@ -1,0 +1,2 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024"><!-- 画布四周保留约 10% 透明边距，使 Dock 中的视觉尺寸与系统图标协调。 -->
+<g transform="translate(80 80) scale(0.84375)"><rect x="24" y="24" width="976" height="976" rx="238" fill="#ef5261"/><path d="M420 704V288l354-64v400M420 416l354-64" fill="none" stroke="#fff" stroke-width="58" stroke-linecap="round" stroke-linejoin="round"/><ellipse cx="328" cy="704" rx="105" ry="87" fill="#fff"/><ellipse cx="682" cy="624" rx="105" ry="87" fill="#fff"/></g></svg>

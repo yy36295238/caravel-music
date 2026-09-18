@@ -1,0 +1,55 @@
+name: Build desktop applications
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+permissions:
+  contents: read
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            bundles: app,dmg
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            bundles: app,dmg
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            bundles: nsis
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - run: npm ci
+      - run: npm run app:build -- --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+      - name: Validate native library and media boundary
+        shell: bash
+        run: |
+          if [ "${{ runner.os }}" = Windows ]; then
+            src-tauri/target/${{ matrix.target }}/release/liusheng.exe --self-check
+          elif [[ "${{ matrix.target }}" == "$(rustc -vV | sed -n 's/^host: //p')" ]]; then
+            src-tauri/target/${{ matrix.target }}/release/liusheng --self-check
+          else
+            # 交叉编译产物不能假设可在当前架构运行；在宿主架构检查同一套库逻辑。
+            cargo run --release --manifest-path src-tauri/Cargo.toml -- --self-check
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: liusheng-${{ matrix.target }}
+          path: |
+            src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
+            src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*.exe
+          if-no-files-found: error

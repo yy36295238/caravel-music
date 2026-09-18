@@ -1,0 +1,43 @@
+@import './themes.css';
+* { box-sizing: border-box; }
+/* 原生窗口与页面都透明，圆角外显示桌面，阴影不再围住矩形窗口。 */
+html, body { background: transparent !important; overflow: hidden; }
+body { margin: 0; padding: 8px; color: var(--text); user-select: none; }
+main { position: relative; height: 136px; padding: 11px 13px; border: 1px solid var(--line); border-radius: 16px; background: var(--bg); box-shadow: 0 3px 7px #0003, inset 0 1px 0 #ffffff06; overflow: hidden; }
+button { border: 0; background: none; color: inherit; cursor: pointer; font: inherit; }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+button:disabled { opacity: .25; cursor: default; }
+button:not(:disabled):hover { background: var(--hover); }
+svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+header { display: flex; align-items: center; height: 18px; gap: 8px; }
+.wordmark { font-size: 10px; font-weight: 600; letter-spacing: 1px; border-radius: 4px; padding: 2px 3px; margin-left: -3px; }
+.wordmark span { color: var(--muted); font-size: 11px; }
+header small { margin-left: auto; color: var(--muted); font-size: 9px; }
+.quiet { display: grid; place-items: center; width: 20px; height: 20px; padding: 0; border-radius: 50%; color: var(--muted); }
+.quiet svg { width: 13px; height: 13px; }
+.track { display: flex; align-items: center; gap: 10px; margin-top: 8px; height: 42px; }
+.record { width: 40px; height: 40px; flex-shrink: 0; border-radius: 50%; display: grid; place-items: center; background: repeating-radial-gradient(circle, #303034 0 1px, #202024 2px 4px); border: 1px solid #454549; box-shadow: 0 2px 4px #0002; }
+.record-label { display: flex; gap: 2px; align-items: center; justify-content: center; width: 21px; height: 21px; background: var(--accent); border-radius: 50%; }
+.record-label i { width: 2px; height: 7px; border-radius: 2px; background: white; transform: scaleY(.45); }
+.playing .record-label i { animation: pulse 900ms ease-in-out infinite alternate; }
+.record-label i:nth-child(2) { animation-delay: -600ms; height: 11px; }
+.record-label i:nth-child(3) { animation-delay: -200ms; height: 9px; }
+.record-label i:nth-child(4) { animation-delay: -800ms; }
+.track-copy { min-width: 0; }
+h1 { font-size: 13px; font-weight: 600; line-height: 1.4; margin: 0 0 4px; }
+h1, .track-copy p { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.track-copy p { font-size: 10px; color: var(--muted); margin: 0; }
+nav { position: relative; display: flex; align-items: center; justify-content: center; gap: 20px; margin-top: 10px; }
+nav button { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 50%; padding: 0; }
+nav .play { width: 32px; height: 32px; background: var(--accent); color: white; }
+nav .play:not(:disabled):hover { background: var(--accent); filter: brightness(1.1); }
+.play svg { fill: currentColor; stroke: none; width: 19px; height: 19px; }
+#error { position: absolute; inset: auto 0 0; padding: 6px; margin: 0; background: var(--panel); color: var(--accent); font-size: 10px; text-align: center; }
+@keyframes pulse { to { transform: scaleY(1); } }
+@media (prefers-reduced-motion: reduce) { .playing .record-label i { animation: none; } }
+
+/* 模式键放在左侧空隙，播放 / 暂停仍保持卡片居中。 */
+nav .mode { position: absolute; left: 0; color: var(--muted); }
+nav .mode[data-mode="single"], nav .mode[data-mode="shuffle"] { color: var(--accent); }
+.mode svg { width: 15px; height: 15px; }
+#single-mark { font-size: 10px; font-weight: 600; fill: currentColor; stroke: none; }
