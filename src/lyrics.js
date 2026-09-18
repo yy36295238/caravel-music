@@ -24,7 +24,9 @@ export function parseLyrics(text) {
 }
 
 /** 二分定位当前歌词；倒退、拖动进度和第一句之前都使用同一规则。 */
-export function activeLyricIndex(lines, position) {
+// 正偏移表示歌词提前，统一换算到歌词时间轴，避免高亮与点击定位方向相反。
+export function activeLyricIndex(lines, position, offset = 0) {
+  position += offset;
   let low = 0, high = lines.length;
   while (low < high) {
     const middle = Math.floor((low + high) / 2);
@@ -37,4 +39,9 @@ export function activeLyricIndex(lines, position) {
 /** 将当前句居中并限制到滚动范围，首尾句不会反复请求越界位置。 */
 export function lyricScrollTop(lineTop, lineHeight, viewHeight, scrollHeight) {
   return Math.min(Math.max(0, scrollHeight - viewHeight), Math.max(0, lineTop + lineHeight / 2 - viewHeight / 2));
+}
+
+/** 点击歌词时反向换算到音频时间，提前后的首句不能跳到负进度。 */
+export function lyricSeekTime(time, offset = 0) {
+  return Math.max(0, time - offset);
 }

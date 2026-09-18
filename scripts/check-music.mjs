@@ -1,24 +1,42 @@
 // 可运行自查：只使用内存样本，不访问个人音乐文件或应用数据。
 import assert from 'node:assert/strict';
-import { matching, collections, albumKey } from '../src/library.js';
-import { parseLyrics, activeLyricIndex, lyricScrollTop } from '../src/lyrics.js';
+import { matching, collections, albumKey, musicFolders } from '../src/library.js';
+import { parseLyrics, activeLyricIndex, lyricScrollTop, lyricSeekTime } from '../src/lyrics.js';
 import { playbackSnapshot } from '../src/menu-state.js';
 
 const tracks = [
-  { id: '1', title: '歌曲一', artist: '甲', album: '同名专辑', groups: ['通勤'], tags: ['安静'], favorite: true },
-  { id: '2', title: '歌曲二', artist: '乙', album: '同名专辑', groups: [], tags: [], favorite: false },
-  { id: '3', title: '歌曲三', artist: '甲', album: '同名专辑', groups: [], tags: [], favorite: false },
-  { id: '4', title: '无信息', artist: '', album: '', groups: [], tags: [], favorite: false },
+  { id: '1', title: '歌曲一', artist: '甲', album: '同名专辑', tags: ['安静'], favorite: true },
+  { id: '2', title: '歌曲二', artist: '乙', album: '同名专辑', tags: [], favorite: false },
+  { id: '3', title: '歌曲三', artist: '甲', album: '同名专辑', tags: [], favorite: false },
+  { id: '4', title: '无信息', artist: '', album: '', tags: [], favorite: false },
 ];
-const filter = { favorite: false, group: '', tags: [], query: '', artist: '', album: '' };
+const filter = { favorite: false, tags: [], query: '', artist: '', album: '' };
 const snapshot = JSON.stringify(tracks);
 assert.equal(collections(tracks, 'albums').length, 3);
 assert.equal(collections(tracks, 'artists').find(item => item.title === '甲').count, 2);
 assert.equal(collections(tracks, 'albums', '乙').length, 1);
 assert.deepEqual(matching(tracks, { ...filter, album: albumKey(tracks[0]) }).map(t => t.id), ['1', '3']);
 assert.equal(matching(tracks, { ...filter, query: '同名专辑' }).length, 3);
-assert.equal(matching(tracks, { ...filter, artist: '甲', favorite: true, group: '通勤', tags: ['安静'] }).length, 1);
+assert.equal(matching(tracks, { ...filter, artist: '甲', favorite: true, tags: ['安静'] }).length, 1);
 assert.equal(JSON.stringify(tracks), snapshot);
+// 只列出添加的音乐来源；同名目录按 ID 隔离，子目录歌曲仍归属于来源。
+const directoryTracks = tracks.map((track, index) => ({ ...track, directoryId: index === 3 ? 'other' : 'music' }));
+const directories = [{ id: 'music', path: '/音乐/摇滚' }, { id: 'other', path: '/备份/摇滚' }];
+const folders = musicFolders(directoryTracks, directories);
+assert.equal(folders.length, 2);
+assert.deepEqual(folders.map(item => [item.name, item.count]), [['摇滚', 3], ['摇滚', 1]]);
+assert.deepEqual(matching(directoryTracks, { ...filter, directoryId: 'music' }).map(t => t.id), ['1', '2', '3']);
+assert.deepEqual(matching(directoryTracks, { ...filter, directoryId: 'other' }).map(t => t.id), ['4']);
+assert.equal(matching(directoryTracks, { ...filter, query: '摇滚' }, directories).length, 4);
+assert.equal(matching(directoryTracks, { ...filter, query: '备份' }, directories).length, 0);
+assert.equal(matching(directoryTracks, { ...filter, directoryId: 'music', favorite: true, tags: ['安静'] }).length, 1);
+assert.equal(matching(directoryTracks, { ...filter, directoryId: '' }).length, 4);
+assert.equal(musicFolders(directoryTracks, []).length, 0);
+assert.equal(musicFolders([], [{ id: 'empty', path: '/' }])[0].count, 0);
+for (const path of ['C:\\音乐', '\\\\?\\C:\\音乐', '\\\\server\\音乐', '\\\\?\\UNC\\server\\音乐', '/Users/name/音乐/']) {
+  assert.equal(musicFolders([], [{ id: 'root', path }])[0].name, '音乐');
+}
+console.log('PASS: 导入目录末级名称、来源歌曲汇总、同名目录隔离、全部恢复及 Windows / UNC 路径');
 const parsed = parseLyrics('\uFEFF[ti:歌名]\n[offset:+500]\n[00:03.250][00:01.50]一句\n[00:01.500]译文\n[00:05]尾句');
 assert.deepEqual(parsed.lines, [{ time: 1, text: '一句\n译文' }, { time: 2.75, text: '一句' }, { time: 4.5, text: '尾句' }]);
 assert.equal(activeLyricIndex(parsed.lines, 0.9), -1);
@@ -63,3 +81,16 @@ for (const mode of ['order', 'single', 'shuffle']) {
 }
 assert.equal(playbackSnapshot(menuStore, [], null, false, false).mode, 'order');
 console.log('PASS: 菜单栏顺序 / 单曲 / 随机模式快照及旧状态回退');
+
+// 提前 / 延后与点击跳转必须互为反向换算，并保留原 LRC 时间戳。
+const calibrated = parseLyrics('[00:01.200]一句\n[00:02.400]二句').lines;
+assert.equal(activeLyricIndex(calibrated, 1.19), -1);
+assert.equal(activeLyricIndex(calibrated, 1.2), 0);
+assert.equal(activeLyricIndex(calibrated, 1, 0.2), 0);
+assert.equal(activeLyricIndex(calibrated, 1.2, -0.2), -1);
+assert.equal(activeLyricIndex(calibrated, 1.4, -0.2), 0);
+assert.equal(lyricSeekTime(1.2, 0.2), 1);
+assert.equal(lyricSeekTime(1.2, -0.2), 1.4);
+assert.equal(lyricSeekTime(0.1, 0.2), 0);
+assert.equal(calibrated[0].time, 1.2);
+console.log('PASS: 歌词小数时间边界、提前 / 延后、点击定位与首句负进度保护');

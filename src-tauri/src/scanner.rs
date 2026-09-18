@@ -9,7 +9,7 @@ use std::{path::Path, sync::atomic::Ordering, time::UNIX_EPOCH};
 use uuid::Uuid;
 use walkdir::WalkDir;
 
-/// 后台增量扫描；单文件损坏可恢复，遍历错误则禁止批量缺失判定。
+/// 添加目录采用增量扫描，全库刷新重读标签；遍历错误时禁止清理未见歌曲。
 pub fn scan(
     library: &Library,
     selected: Option<&str>,
@@ -34,8 +34,13 @@ pub fn scan(
                 continue;
             }
             library.finish_scan(&id, &scan_id, "scanning", false)?;
-            log::info!("扫描开始 root={id}");
-            let known = library.known_files(&id)?;
+            log::info!("扫描开始 root={id} reread_metadata={}", selected.is_none());
+            // 手动刷新必须重读旧索引，否则解析规则修复后未变化的文件永远不会更新。
+            let known = if selected.is_none() {
+                Default::default()
+            } else {
+                library.known_files(&id)?
+            };
             let mut batch = Vec::with_capacity(100);
             let mut complete = true;
             for entry in WalkDir::new(&root).follow_links(false) {
@@ -132,7 +137,7 @@ pub fn scan(
             } else {
                 "error"
             };
-            library.finish_scan(&id, &scan_id, status, complete)?;
+            progress.removed += library.finish_scan(&id, &scan_id, status, complete)?;
             log::info!(
                 "扫描完成 root={id} processed={} failed={} complete={complete}",
                 progress.processed,
@@ -163,10 +168,7 @@ fn read_metadata(path: &Path) -> Metadata {
         .unwrap_or_default()
         .to_string_lossy()
         .into_owned();
-    let (artist, title) = stem
-        .split_once(" - ")
-        .map(|(a, t)| (a.to_string(), t.to_string()))
-        .unwrap_or(("未知歌手".into(), stem));
+    let (title, artist) = resolve_track_names(&stem, None, None);
     let mut meta = Metadata {
         title,
         artist,
@@ -180,12 +182,10 @@ fn read_metadata(path: &Path) -> Metadata {
         Ok(file) => {
             meta.seconds = file.properties().duration().as_secs_f64();
             if let Some(tag) = file.primary_tag().or_else(|| file.first_tag()) {
-                if let Some(title) = tag.title().filter(|s| !s.trim().is_empty()) {
-                    meta.title = title.into_owned();
-                }
-                if let Some(artist) = tag.artist().filter(|s| !s.trim().is_empty()) {
-                    meta.artist = artist.into_owned();
-                }
+                let title = tag.title();
+                let artist = tag.artist();
+                (meta.title, meta.artist) =
+                    resolve_track_names(&stem, title.as_deref(), artist.as_deref());
                 if let Some(album) = tag.album().filter(|s| !s.trim().is_empty()) {
                     meta.album = album.into_owned();
                 }
@@ -197,4 +197,58 @@ fn read_metadata(path: &Path) -> Metadata {
         }
     }
     meta
+}
+
+/// 完整标签优先；缺少歌名时识别编号歌单的“序号.歌名 - 歌手”，避免发行方标签充当歌手。
+pub(crate) fn resolve_track_names(
+    stem: &str,
+    tagged_title: Option<&str>,
+    tagged_artist: Option<&str>,
+) -> (String, String) {
+    let title = tagged_title.map(str::trim).filter(|s| !s.is_empty());
+    let artist = tagged_artist.map(str::trim).filter(|s| !s.is_empty());
+    let stem = stem.trim();
+    let digits = stem.bytes().take_while(u8::is_ascii_digit).count();
+    // 只移除明确的曲目序号，不截断“2002年的第一场雪”等以数字开头的歌名。
+    let numbered = (1..=3).contains(&digits)
+        && (stem[digits..].starts_with(['.', '．', '、'])
+            || (digits >= 2 && stem[digits..].starts_with(' ')));
+    let name = if numbered {
+        stem[digits..]
+            .trim_start_matches(['.', '．', '、', ' '])
+            .trim()
+    } else {
+        stem
+    };
+    let pair = name
+        .split_once(" - ")
+        .map(|(left, right)| (left.trim(), right.trim()))
+        .filter(|(left, right)| !left.is_empty() && !right.is_empty());
+    if let Some((left, right)) = pair {
+        // 已有歌手与左侧吻合时仍按“歌手 - 歌名”；无编号文件维持原有约定。
+        let title_first = artist == Some(right)
+            || (artist != Some(left)
+                && (title == Some(left) || (numbered && title != Some(right))));
+        let (file_title, file_artist) = if title_first {
+            (left, right)
+        } else {
+            (right, left)
+        };
+        if title.is_none() {
+            return (
+                file_title.into(),
+                if numbered {
+                    file_artist
+                } else {
+                    artist.unwrap_or(file_artist)
+                }
+                .into(),
+            );
+        }
+        return (title.unwrap().into(), artist.unwrap_or(file_artist).into());
+    }
+    (
+        title.unwrap_or(name).into(),
+        artist.unwrap_or("未知歌手").into(),
+    )
 }

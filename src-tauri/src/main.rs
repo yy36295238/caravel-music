@@ -58,6 +58,7 @@ fn main() {
             commands::load_library,
             commands::load_lyrics,
             commands::add_directory,
+            commands::open_directory,
             commands::refresh_library,
             commands::cancel_scan,
             commands::remove_directory,

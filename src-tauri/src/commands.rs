@@ -100,3 +100,46 @@ pub fn quit_app(app: AppHandle) {
 pub async fn load_lyrics(app: AppHandle, id: String) -> Result<crate::lyrics::Lyrics, String> {
     run(app, "load_lyrics", move |db| crate::lyrics::load(&db, &id)).await
 }
+
+/// 调用系统文件管理器；路径使用独立参数传入，不经过 shell 解析。
+#[tauri::command]
+pub async fn open_directory(app: AppHandle, id: String) -> Result<(), String> {
+    run(app, "open_directory", move |db| {
+        let path = db.directory_path(&id)?;
+        #[cfg(target_os = "macos")]
+        let program = "/usr/bin/open";
+        #[cfg(target_os = "windows")]
+        let program = "explorer.exe";
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+        let program = "xdg-open";
+        let mut command = std::process::Command::new(program);
+        #[cfg(target_os = "windows")]
+        {
+            // Rust 的规范路径带有长路径前缀，Explorer 需要普通盘符或 UNC 形式。
+            let text = path.to_string_lossy();
+            let text = text.strip_prefix(r"\\?\").unwrap_or(&text);
+            let argument = text
+                .strip_prefix(r"UNC\")
+                .map(|rest| format!(r"\\{rest}"))
+                .unwrap_or_else(|| text.to_owned());
+            // Explorer 可能持有窗口进程，不等待用户关闭文件管理器。
+            command
+                .arg(argument)
+                .spawn()
+                .map_err(|e| format!("启动文件管理器失败：{e}"))?;
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            let status = command
+                .arg(path)
+                .status()
+                .map_err(|e| format!("打开文件夹失败：{e}"))?;
+            if !status.success() {
+                return Err(format!("文件管理器打开失败：{status}"));
+            }
+        }
+        log::info!("打开音乐文件夹 id={id}");
+        Ok(())
+    })
+    .await
+}

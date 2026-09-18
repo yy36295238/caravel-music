@@ -15,7 +15,6 @@ pub struct Track {
     pub available: bool,
     pub favorite: bool,
     pub metadata_error: String,
-    pub groups: Vec<String>,
     pub tags: Vec<String>,
 }
 
@@ -33,7 +32,6 @@ pub struct Directory {
 pub struct LibraryData {
     pub tracks: Vec<Track>,
     pub directories: Vec<Directory>,
-    pub groups: Vec<String>,
     pub tags: Vec<String>,
     pub settings: serde_json::Value,
 }
@@ -47,13 +45,15 @@ pub struct PlaybackSettings {
     pub current: Option<String>,
     pub position: f64,
     pub queue: Option<Vec<String>>,
+    /// 按歌曲 ID 保存歌词提前秒数；仅修改时传入，兼容旧页面不传此字段。
+    #[serde(rename = "lyricOffsets")]
+    pub lyric_offsets: Option<std::collections::HashMap<String, f64>>,
 }
 
-/// 批量操作区分替换、添加、移除，不能覆盖未选择的其他分类。
+/// 批量标签操作区分替换、添加、移除，不修改旧分组关联。
 #[derive(Deserialize)]
 pub struct Assignment {
     pub ids: Vec<String>,
-    pub groups: Vec<String>,
     pub tags: Vec<String>,
     pub operation: String,
 }
@@ -63,6 +63,8 @@ pub struct Assignment {
 #[serde(rename_all = "camelCase")]
 pub struct ScanProgress {
     pub processed: usize,
+    /// 本次完整扫描从曲库删除的缺失歌曲数量，不涉及删除磁盘文件。
+    pub removed: usize,
     pub failed: usize,
     pub finished: bool,
     pub cancelled: bool,

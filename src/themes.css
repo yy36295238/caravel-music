@@ -14,3 +14,6 @@ body[data-theme="light"] {
   --accent-soft: #e5f5ec; --button-text: #fff; --secondary: #52665b;
   --player: #fff; --hero: #eaf4ee; --shadow: 0 18px 70px #244b3420;
 }
+/* 两个窗口共用中性焦点提示，避免主题红色像报错；鼠标操作不额外描边。 */
+:focus-visible { outline: 2px solid var(--muted); outline-offset: 2px; }
+:focus:not(:focus-visible) { outline: none; }

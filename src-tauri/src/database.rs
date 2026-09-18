@@ -76,7 +76,7 @@ impl Library {
             .lock()
             .map_err(|_| "数据库锁异常，请重启应用".into())
     }
-    /// 原型的两类分类复用同一关联结构，类型始终限制为分组与标签。
+    /// 仅加载标签；旧分组保留在数据库中，不再进入界面或筛选。
     pub fn load(&self) -> Result<LibraryData> {
         let conn = self.conn()?;
         let mut statement = conn.prepare("SELECT t.id,t.directory_id,t.filename,t.title,t.artist,t.album,t.seconds,
@@ -97,7 +97,6 @@ impl Library {
                     available: r.get(7)?,
                     favorite: r.get(8)?,
                     metadata_error: r.get(9)?,
-                    groups: vec![],
                     tags: vec![],
                 })
             })
@@ -110,25 +109,15 @@ impl Library {
             .map(|(i, t)| (t.id.clone(), i))
             .collect();
         let mut associations = conn
-            .prepare("SELECT track_id,kind,name FROM track_categories ORDER BY name")
+            .prepare("SELECT track_id,name FROM track_categories WHERE kind='tags' ORDER BY name")
             .map_err(error)?;
         for row in associations
-            .query_map([], |r| {
-                Ok((
-                    r.get::<_, String>(0)?,
-                    r.get::<_, String>(1)?,
-                    r.get::<_, String>(2)?,
-                ))
-            })
+            .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
             .map_err(error)?
         {
-            let (id, kind, name) = row.map_err(error)?;
+            let (id, name) = row.map_err(error)?;
             if let Some(&i) = positions.get(&id) {
-                if kind == "groups" {
-                    tracks[i].groups.push(name);
-                } else {
-                    tracks[i].tags.push(name);
-                }
+                tracks[i].tags.push(name);
             }
         }
         let mut dirs = conn.prepare("SELECT d.id,d.path,d.status,COUNT(t.id) FROM directories d LEFT JOIN tracks t ON t.directory_id=d.id WHERE d.active=1 GROUP BY d.id ORDER BY d.path").map_err(error)?;
@@ -145,21 +134,13 @@ impl Library {
             .collect::<std::result::Result<_, _>>()
             .map_err(error)?;
         let mut cats = conn
-            .prepare("SELECT kind,name FROM categories ORDER BY name")
+            .prepare("SELECT name FROM categories WHERE kind='tags' ORDER BY name")
             .map_err(error)?;
-        let mut groups = vec![];
-        let mut tags = vec![];
-        for row in cats
-            .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
+        let tags = cats
+            .query_map([], |r| r.get::<_, String>(0))
             .map_err(error)?
-        {
-            let (kind, name) = row.map_err(error)?;
-            if kind == "groups" {
-                groups.push(name);
-            } else {
-                tags.push(name);
-            }
-        }
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(error)?;
         let state: Option<String> = conn
             .query_row(
                 "SELECT value FROM app_state WHERE key='playback'",
@@ -184,10 +165,22 @@ impl Library {
             .transpose()
             .map_err(error)?
             .unwrap_or(serde_json::json!([]));
+        let offsets: Option<String> = conn
+            .query_row(
+                "SELECT value FROM app_state WHERE key='lyric_offsets'",
+                [],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(error)?;
+        settings["lyricOffsets"] = offsets
+            .map(|v| serde_json::from_str(&v))
+            .transpose()
+            .map_err(error)?
+            .unwrap_or(serde_json::json!({}));
         Ok(LibraryData {
             tracks,
             directories,
-            groups,
             tags,
             settings,
         })
@@ -277,16 +270,26 @@ impl Library {
         tx.commit().map_err(error)?;
         Ok(())
     }
-    /// 遍历不完整、取消或离线时不得把未见到的歌曲批量标记为缺失。
-    pub fn finish_scan(&self, id: &str, scan: &str, status: &str, complete: bool) -> Result<()> {
+    /// 仅完整扫描后删除未见歌曲；离线、取消及读取失败时保留索引。
+    pub fn finish_scan(&self, id: &str, scan: &str, status: &str, complete: bool) -> Result<usize> {
         let mut conn = self.conn()?;
         let tx = conn.transaction().map_err(error)?;
+        let mut removed = 0;
         if complete {
-            tx.execute(
-                "UPDATE tracks SET available=0 WHERE directory_id=?1 AND last_seen<>?2",
-                params![id, scan],
-            )
-            .map_err(error)?;
+            // 旧表没有歌曲级联删除，先清理关联，保留用户创建的分组和标签本身。
+            tx.execute("DELETE FROM track_categories WHERE track_id IN (SELECT id FROM tracks WHERE directory_id=?1 AND last_seen<>?2)", params![id, scan]).map_err(error)?;
+            removed = tx
+                .execute(
+                    "DELETE FROM tracks WHERE directory_id=?1 AND last_seen<>?2",
+                    params![id, scan],
+                )
+                .map_err(error)?;
+            if removed > 0 {
+                // 在同一事务中清理持久化引用，重启后不能恢复已删除歌曲。
+                tx.execute("UPDATE app_state SET value=(SELECT json_group_array(j.value ORDER BY CAST(j.key AS INTEGER)) FROM json_each(app_state.value) j JOIN tracks t ON t.id=j.value) WHERE key='queue'", []).map_err(error)?;
+                tx.execute("UPDATE app_state SET value=(SELECT json_group_object(j.key,j.value) FROM json_each(app_state.value) j JOIN tracks t ON t.id=j.key) WHERE key='lyric_offsets'", []).map_err(error)?;
+                tx.execute("UPDATE app_state SET value=json_set(value,'$.current',NULL,'$.position',0) WHERE key='playback' AND json_extract(value,'$.current') IS NOT NULL AND NOT EXISTS(SELECT 1 FROM tracks WHERE id=json_extract(app_state.value,'$.current'))", []).map_err(error)?;
+            }
         }
         tx.execute(
             "UPDATE directories SET status=?1 WHERE id=?2",
@@ -294,7 +297,31 @@ impl Library {
         )
         .map_err(error)?;
         tx.commit().map_err(error)?;
-        Ok(())
+        if removed > 0 {
+            log::info!("清理缺失歌曲 root={id} removed={removed}");
+        }
+        Ok(removed)
+    }
+    /// 只允许打开已添加且启用的目录，前端不能提供任意路径或命令参数。
+    pub fn directory_path(&self, id: &str) -> Result<PathBuf> {
+        if Uuid::parse_str(id).is_err() {
+            return Err("音乐文件夹 ID 无效".into());
+        }
+        let path: String = self
+            .conn()?
+            .query_row(
+                "SELECT path FROM directories WHERE id=?1 AND active=1",
+                [id],
+                |r| r.get(0),
+            )
+            .map_err(|_| "音乐文件夹不存在或已移除".to_string())?;
+        let real = Path::new(&path)
+            .canonicalize()
+            .map_err(|e| format!("无法打开音乐文件夹：{e}"))?;
+        if !real.is_dir() {
+            return Err("音乐文件夹已不存在".into());
+        }
+        Ok(real)
     }
     pub fn remove_directory(&self, id: &str) -> Result<()> {
         if self.scanning.load(Ordering::SeqCst) {
@@ -325,6 +352,7 @@ impl Library {
         Ok(())
     }
     /// 所有分类写入通过参数绑定，更新与删除由外键级联保持关联一致。
+    /// 标签管理沿用旧表结构，停用分组写入但不迁移或删除历史数据。
     pub fn category(
         &self,
         kind: &str,
@@ -332,7 +360,7 @@ impl Library {
         name: &str,
         next: Option<&str>,
     ) -> Result<()> {
-        if !["groups", "tags"].contains(&kind) {
+        if kind != "tags" {
             return Err("分类类型无效".into());
         }
         validate_name(name)?;
@@ -362,6 +390,7 @@ impl Library {
         log::info!("分类写入 kind={kind} op={operation}");
         Ok(())
     }
+    /// 在单个事务中批量更新歌曲标签，旧分组关联保持不变。
     pub fn assign(&self, assignment: Assignment) -> Result<()> {
         if assignment.ids.is_empty()
             || assignment.ids.len() > 15000
@@ -369,27 +398,26 @@ impl Library {
         {
             return Err("分类操作参数无效".into());
         }
-        if assignment.groups.len() + assignment.tags.len() > 500 {
-            return Err("一次最多选择 500 个分类".into());
+        if assignment.tags.len() > 500 {
+            return Err("一次最多选择 500 个标签".into());
         }
         let mut conn = self.conn()?;
         let tx = conn.transaction().map_err(error)?;
         for id in &assignment.ids {
-            for (kind, names) in [("groups", &assignment.groups), ("tags", &assignment.tags)] {
-                if assignment.operation == "replace" {
-                    tx.execute(
-                        "DELETE FROM track_categories WHERE track_id=?1 AND kind=?2",
-                        params![id, kind],
-                    )
-                    .map_err(error)?;
-                }
-                for name in names {
-                    validate_name(name)?;
-                    if assignment.operation == "remove" {
-                        tx.execute("DELETE FROM track_categories WHERE track_id=?1 AND kind=?2 AND name=?3",params![id,kind,name]).map_err(error)?;
-                    } else {
-                        tx.execute("INSERT INTO track_categories(track_id,kind,name) VALUES(?1,?2,?3) ON CONFLICT DO NOTHING",params![id,kind,name]).map_err(error)?;
-                    }
+            // 替换范围限定为标签，升级后的首次编辑不会清空旧分组记录。
+            if assignment.operation == "replace" {
+                tx.execute(
+                    "DELETE FROM track_categories WHERE track_id=?1 AND kind='tags'",
+                    [id],
+                )
+                .map_err(error)?;
+            }
+            for name in &assignment.tags {
+                validate_name(name)?;
+                if assignment.operation == "remove" {
+                    tx.execute("DELETE FROM track_categories WHERE track_id=?1 AND kind='tags' AND name=?2", params![id,name]).map_err(error)?;
+                } else {
+                    tx.execute("INSERT INTO track_categories(track_id,kind,name) VALUES(?1,'tags',?2) ON CONFLICT DO NOTHING", params![id,name]).map_err(error)?;
                 }
             }
         }
@@ -401,6 +429,7 @@ impl Library {
         );
         Ok(())
     }
+    /// 保存播放状态；歌词校准仅在用户调整时更新，避免周期性覆盖。
     pub fn save_settings(&self, s: PlaybackSettings) -> Result<()> {
         if s.skin.len() > 64
             || !s.volume.is_finite()
@@ -420,14 +449,30 @@ impl Library {
         {
             return Err("播放队列无效".into());
         }
+        if s.lyric_offsets.as_ref().is_some_and(|offsets| {
+            offsets.len() > 15000
+                || offsets.iter().any(|(id, seconds)| {
+                    Uuid::parse_str(id).is_err() || !seconds.is_finite() || seconds.abs() > 30.0
+                })
+        }) {
+            return Err("歌词时间偏移无效".into());
+        }
         let mut conn = self.conn()?;
         let tx = conn.transaction().map_err(error)?;
+        // 校准独立保存，旧页面和周期性进度保存都不能清空已有偏移。
+        if let Some(ref offsets) = s.lyric_offsets {
+            tx.execute("INSERT INTO app_state VALUES('lyric_offsets',?1) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                [serde_json::to_string(offsets).map_err(error)?]).map_err(error)?;
+        }
         let value = serde_json::json!({"skin":s.skin,"volume":s.volume,"mode":s.mode,"current":s.current,"position":s.position});
         tx.execute("INSERT INTO app_state VALUES('playback',?1) ON CONFLICT(key) DO UPDATE SET value=excluded.value",[value.to_string()]).map_err(error)?;
         if let Some(queue) = s.queue {
             tx.execute("INSERT INTO app_state VALUES('queue',?1) ON CONFLICT(key) DO UPDATE SET value=excluded.value",[serde_json::to_string(&queue).map_err(error)?]).map_err(error)?;
         }
         tx.commit().map_err(error)?;
+        if let Some(offsets) = s.lyric_offsets {
+            log::info!("保存歌词校准 count={}", offsets.len());
+        }
         Ok(())
     }
     /// 每次媒体请求均重新校验目录启用状态与真实路径，移除目录即时撤销读取权。
