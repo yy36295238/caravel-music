@@ -36,12 +36,21 @@ export CHECK_PLATFORM=Darwin
 : > "$CHECK_LOG"
 # 帮助及错误参数不应执行安装、启动或打包命令。
 bash "$CHECK_PROJECT/run.sh" help >/dev/null
-for args in 'unknown' 'dev extra' 'build unknown' 'build nsis' 'help extra'; do
+for args in 'unknown' 'dev extra' 'build unknown' 'build nsis' 'help extra' 'clean extra'; do
   if bash "$CHECK_PROJECT/run.sh" $args >/dev/null 2>&1; then
     echo "FAIL: 应拒绝 $args" >&2; exit 1
   fi
 done
 [ ! -s "$CHECK_LOG" ]
+# 清理兼容用户的 sh 调用；只删除构建目录，保留安装包、依赖和其它数据，重复执行也成功。
+mkdir -p "$CHECK_PROJECT/src-tauri/target/release" "$CHECK_PROJECT/dist" "$CHECK_PROJECT/artifacts" "$CHECK_PROJECT/node_modules" "$CHECK_PROJECT/music"
+touch "$CHECK_PROJECT/src-tauri/target/release/cache" "$CHECK_PROJECT/dist/index.html" "$CHECK_PROJECT/artifacts/player.dmg" "$CHECK_PROJECT/node_modules/keep" "$CHECK_PROJECT/music/song.mp3"
+sh "$CHECK_PROJECT/run.sh" clean >/dev/null
+sh "$CHECK_PROJECT/run.sh" clean >/dev/null
+[ ! -e "$CHECK_PROJECT/src-tauri/target" ] && [ ! -e "$CHECK_PROJECT/dist" ]
+[ -f "$CHECK_PROJECT/artifacts/player.dmg" ] && [ -f "$CHECK_PROJECT/node_modules/keep" ] && [ -f "$CHECK_PROJECT/music/song.mp3" ]
+[ ! -s "$CHECK_LOG" ]
+rm -rf "$CHECK_PROJECT/node_modules"
 if CHECK_PORT_BUSY=1 bash "$CHECK_PROJECT/run.sh" dev >/dev/null 2>&1; then
   echo 'FAIL: 占用端口应阻止启动' >&2; exit 1
 fi
@@ -72,4 +81,4 @@ npm run app:build -- --bundles nsis
 npm run app:build -- --bundles nsis
 EXPECTED
 diff -u "$check_dir/expected" "$CHECK_LOG"
-echo 'PASS: 参数拒绝、端口占用、首次安装、默认启动、带空格路径及 macOS / Windows 命令分发'
+echo 'PASS: 清理范围与成品保留、重复清理、参数拒绝、端口占用、首次安装、默认启动、带空格路径及 macOS / Windows 命令分发'

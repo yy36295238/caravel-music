@@ -1,0 +1,4 @@
+# 官网为独立静态目录，部署时不上传桌面应用、曲库或构建缓存。
+name = "caravel-music"
+pages_build_output_dir = "site"
+compatibility_date = "2026-09-19"

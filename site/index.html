@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f5f7fa">
+  <title>留声 — 把喜欢，留在耳边</title>
+  <meta name="description" content="留声，一款简单的本地 MP3 音乐播放器。按文件夹、专辑和歌手整理音乐，收藏、标签、本地歌词，深色红与清新绿两套皮肤。macOS 通用版现已提供下载。">
+  <meta property="og:title" content="留声 — 把喜欢，留在耳边">
+  <meta property="og:description" content="你收藏的音乐，值得一个安静的播放器。本地 MP3、同步歌词、两套皮肤。">
+  <meta property="og:type" content="website">
+  <meta property="og:image" content="https://caravel-music.pages.dev/assets/player-dark.webp">
+  <link rel="icon" href="assets/logo.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="style.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <a class="skip" href="#main">跳转到正文</a>
+  <header class="header wrap">
+    <a class="brand" href="#" aria-label="留声首页"><img src="assets/logo.svg" alt="" width="38" height="38"><span>留声<small>LOCAL MUSIC</small></span></a>
+    <nav aria-label="主导航"><a href="#features">功能</a><a href="#questions">常见问题</a><a href="https://github.com/yy36295238/caravel-music">GitHub ↗</a></nav>
+    <a class="button small" href="#download">下载留声 <span aria-hidden="true">↓</span></a>
+  </header>
+  <main id="main">
+    <section class="hero wrap" aria-labelledby="hero-title">
+      <div class="hero-heading"><p class="eyebrow"><span class="status-dot"></span> 为本地音乐而生</p><h1 id="hero-title">把喜欢，<br>留在<span class="accent">耳边。</span></h1></div>
+      <div class="hero-copy"><p class="intro">那些认真收藏的歌，<br>一个安静的地方，就够了。</p><p>打开你的音乐文件夹，让熟悉的旋律继续。<br>不用登录，离线聆听，音乐始终在你手里。</p><div class="hero-actions"><a class="button primary" href="#download">获取 macOS 版 <span aria-hidden="true">↗</span></a><a class="text-link" href="#preview">看看它的样子 <span aria-hidden="true">↓</span></a></div><small>macOS 12+ · Apple Silicon 与 Intel 通用</small></div>
+    </section>
+    <section class="preview wrap" id="preview" aria-label="应用界面预览">
+      <div class="preview-bar"><span>你的曲库，你的颜色。</span><div class="skin-switch" role="group" aria-label="预览皮肤"><button type="button" data-skin="dark" aria-pressed="true"><i class="red" aria-hidden="true"></i>深色红</button><button type="button" data-skin="light" aria-pressed="false"><i class="green" aria-hidden="true"></i>清新绿</button></div></div>
+      <div class="app-frame"><div class="window-bar" aria-hidden="true"><div><i></i><i></i><i></i></div><span>留声 · 本地音乐</span><span>♪</span></div><img id="player-preview" src="assets/player-dark.webp" width="1996" height="1248" alt="留声深色红皮肤：专辑歌曲列表、文件夹筛选、右侧歌词与底部播放器" fetchpriority="high"></div>
+      <div class="preview-caption"><span id="skin-caption" aria-live="polite">深色红 · 给夜晚的旋律</span><span>真实应用截图 · 点击上方切换皮肤</span></div>
+    </section>
+    <section class="features wrap" id="features" aria-labelledby="features-title">
+      <div class="section-heading"><p class="eyebrow">留给音乐，刚刚好的空间</p><h2 id="features-title">常用的都有。<br>听歌，简单一点。</h2><p>从硬盘里的一个文件夹，<br>到每天想听的那首歌。</p></div>
+      <div class="feature-list">
+        <article><span class="feature-symbol" aria-hidden="true">⌑</span><div><h3>按你的习惯，找到音乐</h3><p>文件夹已经分好类，就直接按文件夹听。也能按专辑、歌手浏览，用收藏和标签留下自己的偏爱。</p><div class="mini-folders" aria-hidden="true"><span>全部</span><span class="chosen">周杰伦 <small>209</small></span><span>一人一首成名曲 <small>160</small></span></div></div></article>
+        <article><span class="feature-symbol" aria-hidden="true">词</span><div><h3>旋律和歌词，在同一个地方</h3><p>读取本地 LRC 和内嵌歌词，跟随播放高亮。点一句，听那一句；时间有偏差，可以为这首歌单独校准。</p><span class="feature-note">歌词可收起 · 单曲时间校准</span></div></article>
+        <article><span class="feature-symbol" aria-hidden="true">♫</span><div><h3>专心做事，顺手换首歌</h3><p>macOS 菜单栏里的小播放器，支持暂停、切歌和播放模式。主界面与播放队列用轻微律动标记当前歌曲。</p><span class="feature-note">顺序播放 · 随机播放 · 单曲循环</span></div></article>
+      </div>
+    </section>
+    <section class="local-note wrap" aria-label="本地音乐说明"><span class="note-mark" aria-hidden="true">♪</span><div><h2>音乐与偏好，只留在本地。</h2><p>导入时建立索引，不复制、不移动、不改写你的 MP3。<br>不需要账号，收藏、标签和播放进度都保存在这台电脑上。</p></div><span class="local-badge"><span class="status-dot"></span> 离线可用</span></section>
+    <section class="download wrap" id="download" aria-labelledby="download-title">
+      <div class="download-copy"><p class="eyebrow">留声 v0.1.0</p><h2 id="download-title">让硬盘里的好音乐，<br>重新响起来。</h2><p>从一个文件夹开始。</p></div>
+      <div class="download-options"><article class="download-mac"><div class="download-label"><h3>macOS</h3><span>通用版</span></div><p>Apple Silicon / Intel · macOS 12 或更新版本</p><a class="button primary download-link" href="https://github.com/yy36295238/caravel-music/releases/download/v0.1.0/liusheng_0.1.0_macos_universal.dmg">下载 DMG <span>7.4 MB ↓</span></a><small>本地签名，尚未经过 Apple 公证。<a href="#mac-install">查看安装说明</a></small></article><article class="download-windows"><div><h3>Windows</h3><p>支持 Windows 10 / 11 x64，目前提供源码构建。</p></div><a href="https://github.com/yy36295238/caravel-music/blob/main/docs/guide.md#本地开发和打包">构建指南 ↗</a></article></div>
+    </section>
+    <section class="faq wrap" id="questions" aria-labelledby="faq-title"><div><p class="eyebrow">开始之前</p><h2 id="faq-title">你可能想知道</h2><a class="text-link" href="https://github.com/yy36295238/caravel-music/issues">其他问题，去 GitHub 聊聊 ↗</a></div><div class="faq-list">
+      <details><summary>有在线音乐和歌词搜索吗？<span aria-hidden="true">+</span></summary><p>留声播放你已有的本地 MP3，不提供在线曲库或联网歌词搜索。歌词来自同目录同名的 LRC 文件，或 MP3 内嵌歌词。</p></details>
+      <details><summary>导入音乐会移动或修改文件吗？<span aria-hidden="true">+</span></summary><p>不会。导入只建立曲库索引。移除音乐来源不会删除原文件；刷新曲库会清理已经不存在的歌曲记录。目录离线或扫描失败时会保留记录。</p></details>
+      <details id="mac-install"><summary>macOS 下载后怎么安装？<span aria-hidden="true">+</span></summary><p>打开 DMG，将「留声」拖入 Applications。当前版本采用本地签名，尚未公证；若系统阻止打开，请确认文件来自本项目，再按 macOS「系统设置 → 隐私与安全性」中的提示处理。无需全局关闭系统安全保护。</p></details>
+      <details><summary>深色红和清新绿，功能一样吗？<span aria-hidden="true">+</span></summary><p>一样。在「设置 → 外观」中切换；曲库、歌词、收藏和队列共用同一套功能，播放也不会中断。</p></details>
+      <details><summary>支持哪些格式和系统？<span aria-hidden="true">+</span></summary><p>当前支持本地 MP3。macOS 通用包同时包含 arm64 和 x86_64，最低 macOS 12。Windows 10 / 11 x64 可按指南构建，运行需要 WebView2；目前尚未提供官网 Windows 安装包。</p></details>
+    </div></section>
+  </main>
+  <footer class="footer wrap"><a class="brand" href="#"><img src="assets/logo.svg" alt="" width="30" height="30"><span>留声</span></a><span>把喜欢，留在耳边。</span><div><a href="https://github.com/yy36295238/caravel-music">GitHub ↗</a><a href="https://github.com/yy36295238/caravel-music/releases">版本记录 ↗</a></div></footer>
+</body>
+</html>

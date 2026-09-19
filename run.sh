@@ -15,6 +15,7 @@ print_help() {
   ./run.sh build universal     macOS 生成 Apple Silicon + Intel 双架构 .app
   ./run.sh build universal dmg macOS 双架构 .app + DMG，参数顺序不限
   ./run.sh build nsis          Windows（Git Bash）生成 NSIS 安装包
+  ./run.sh clean               清理编译产物和 dist，保留 artifacts 中的安装包
   ./run.sh help                查看帮助
 
 首次运行缺少 node_modules 时执行 npm ci。
@@ -34,6 +35,13 @@ case "$command_name" in
   help|-h|--help) [ "$#" -eq 0 ] || fail 'help 不接受其他参数'; print_help; exit 0 ;;
   dev) [ "$#" -eq 0 ] || fail 'dev 不接受其他参数' ;;
   build) ;;
+  clean)
+    [ "$#" -eq 0 ] || fail 'clean 不接受其他参数'
+    # 仅清理项目内可重建的输出；不依赖构建工具，也不触及安装包、依赖或用户曲库。
+    echo '清理 src-tauri/target 和 dist（包含 target 内的 .app / NSIS 产物）…'
+    rm -rf -- src-tauri/target dist
+    echo '清理完成，artifacts 安装包已保留；下次启动或打包会重新编译。'
+    exit 0 ;;
   *) fail "未知命令：${command_name}，查看 ./run.sh help" ;;
 esac
 
