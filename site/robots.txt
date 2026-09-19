@@ -1,2 +1,4 @@
 User-agent: *
 Allow: /
+
+Sitemap: https://caravel-music.pages.dev/sitemap.xml

@@ -41,3 +41,15 @@ npx wrangler@4 pages deploy site --project-name caravel-music --branch main
 - Windows 尚无官网安装包，按钮只指向真实构建说明。
 - 如更换官网域名，同步更新 README、Open Graph 图片绝对地址及本说明。
 - 截图切换为展示效果，不模拟播放器，也不读取访客文件。网站不使用统计脚本、Cookie 或外部字体。
+
+## 搜索发现
+
+- GitHub About 使用中英文产品描述与准确的平台状态，Topics 标明 music-player、local-music-player、mp3-player、lyrics、tauri 等实际属性。
+- 中文和英文 README 介绍用途、功能、安装要求、限制及开发方式，不使用虚构下载量或用户评价。
+- 官网提供明确的页面标题、描述、canonical、Open Graph / Twitter 分享信息与 SoftwareApplication 结构化数据。
+- `robots.txt` 允许抓取并声明 `sitemap.xml`，站点地图仅包含正式官网首页。
+- 修改 JSON-LD 后，需要同步更新 `_headers` 的 CSP SHA-256，`node scripts/check-site.mjs` 会检查一致性。
+
+这些配置有助于搜索系统理解项目，但不保证收录时效、排名或展示形式。GitHub 和外部搜索引擎各自维护索引。可用 `caravel-music in:name` 或 `user:yy36295238 topic:music-player` 在 GitHub 查找；外部可尝试「留声 Liusheng 本地音乐播放器」。
+
+如需主动请求 Google / Bing 收录，需由站点所有者在 Search Console / Bing Webmaster Tools 验证网站后提交 `https://caravel-music.pages.dev/sitemap.xml`；本次没有代为完成站长平台认证或声称已被外部搜索引擎收录。
