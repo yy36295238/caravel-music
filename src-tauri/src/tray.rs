@@ -137,18 +137,12 @@ mod native {
         .resizable(false)
         .visible(false)
         .focused(false)
-        .always_on_top(true)
         .skip_taskbar(true)
-        .visible_on_all_workspaces(true)
         .shadow(false)
         .build()?;
-        let handle = app.handle().clone();
-        popup.on_window_event(move |event| {
-            if matches!(event, tauri::WindowEvent::Focused(false)) {
-                // WKWebView 激活过程也会短暂失焦，不能因此关掉鼠标正在操作的卡片。
-                handle.state::<MenuPlayer>().pinned.store(false, SeqCst);
-            }
-        });
+        // 初始化在主线程执行，原生指针由当前存活的 Tauri 窗口持有。
+        let native = unsafe { &*popup.ns_window()?.cast::<NSWindow>() };
+        crate::tray_panel::attach(native, MainThreadMarker::new().expect("主线程初始化"))?;
         TrayIconBuilder::with_id("liusheng-player")
             .icon(frame(0))
             .icon_as_template(true)
@@ -214,9 +208,6 @@ mod native {
 
     /// 鼠标、屏幕和窗口全程使用 AppKit 的点坐标（左下原点），避免跨屏 DPI 混算。
     fn show(app: &tauri::AppHandle, rect: tauri::Rect, pin: bool) -> tauri::Result<()> {
-        let Some(window) = app.get_webview_window("mini-player") else {
-            return Ok(());
-        };
         let mtm = MainThreadMarker::new()
             .ok_or_else(|| std::io::Error::other("菜单栏定位须在主线程执行"))?;
         let mouse = NSEvent::mouseLocation();
@@ -240,13 +231,12 @@ mod native {
             log::warn!("菜单栏定位失败：鼠标未落在可用屏幕内");
             return Ok(());
         };
-        // 指针来自当前存活的 Tauri 窗口，且仅在主线程同步借用。
-        let native = unsafe { &*window.ns_window()?.cast::<NSWindow>() };
+        let native = crate::tray_panel::get(mtm)?;
         // 图标动画可能重复产生 Enter；同屏已展开时不能跟着这些事件重新定位。
         let same_screen = native
             .screen()
             .is_some_and(|current| current.frame() == screen.frame());
-        let opened = !window.is_visible()? || !same_screen;
+        let opened = !native.isVisible() || !same_screen;
         if opened {
             // 直接使用 AppKit 点坐标，绕过 Tauri 按移动前缩放比例换算的问题。
             native.setFrameTopLeftPoint(origin);
@@ -254,9 +244,10 @@ mod native {
         if pin {
             app.state::<MenuPlayer>().pinned.store(true, SeqCst);
         }
-        window.show()?;
+        // Tauri show/set_focus 会激活普通窗口；面板只排序到前方，不切换应用或空间。
+        native.orderFrontRegardless();
         if pin {
-            window.set_focus()?;
+            native.makeKeyWindow();
         }
         if opened {
             let scale = screen.backingScaleFactor();
@@ -273,11 +264,13 @@ mod native {
             );
             watch_hover(app, bridge);
         }
-        log::debug!(
-            "菜单栏定位 x={:.0} y={:.0} pinned={pin}",
-            origin.x,
-            origin.y
-        );
+        if opened {
+            log::info!(
+                "菜单栏面板展开 x={:.0} y={:.0} pinned={pin}",
+                origin.x,
+                origin.y
+            );
+        }
         Ok(())
     }
 
@@ -310,8 +303,16 @@ mod native {
         let state = app.state::<MenuPlayer>();
         state.pinned.store(false, SeqCst);
         state.hover.fetch_add(1, SeqCst);
-        if let Some(window) = app.get_webview_window("mini-player") {
-            window.hide()?;
+        // IPC 可能来自工作线程，AppKit 排序操作必须回到主线程。
+        if let Some(mtm) = MainThreadMarker::new() {
+            crate::tray_panel::get(mtm)?.orderOut(None);
+        } else {
+            app.run_on_main_thread(|| {
+                match crate::tray_panel::get(MainThreadMarker::new().expect("主线程隐藏")) {
+                    Ok(panel) => panel.orderOut(None),
+                    Err(error) => log::warn!("菜单栏面板隐藏失败: {error}"),
+                }
+            })?;
         }
         Ok(())
     }
@@ -347,16 +348,17 @@ mod native {
     /// 所有自动收起走同一个判断；显式关闭和 Esc 仍立即生效。
     fn check_hover(app: &tauri::AppHandle, bridge: NSRect) -> tauri::Result<()> {
         let state = app.state::<MenuPlayer>();
-        let Some(window) = app.get_webview_window("mini-player") else {
-            state.hover.fetch_add(1, SeqCst);
-            return Ok(());
-        };
-        if !window.is_visible()? {
+        let mtm = MainThreadMarker::new()
+            .ok_or_else(|| std::io::Error::other("菜单栏悬浮检查须在主线程执行"))?;
+        let native = crate::tray_panel::get(mtm)?;
+        if !native.isVisible() {
             state.hover.fetch_add(1, SeqCst);
             return Ok(());
         }
-        // 在主线程读取当前窗口边界，兼容屏幕移动、缩放以及透明阴影边缘。
-        let native = unsafe { &*window.ns_window()?.cast::<NSWindow>() };
+        // 点击其他窗口后解除固定；鼠标仍在卡片内时继续按悬浮规则显示。
+        if state.pinned.load(SeqCst) && !native.isKeyWindow() {
+            state.pinned.store(false, SeqCst);
+        }
         let mut outside = state.outside_since.lock().unwrap();
         if keep_open(
             NSEvent::mouseLocation(),
@@ -456,6 +458,25 @@ pub fn self_check() {
     assert_eq!(first.rgba(), native::frame(5).rgba());
     use objc2_foundation::{NSPoint, NSRect, NSSize};
     let screen = |x, y, w, h| NSRect::new(NSPoint::new(x, y), NSSize::new(w, h));
+    // 实际创建 AppKit 面板，防止退回普通窗口或丢失非激活属性后仍通过几何自查。
+    use objc2_app_kit::{
+        NSApplication, NSStatusWindowLevel, NSWindowCollectionBehavior, NSWindowStyleMask,
+    };
+    let mtm = objc2::MainThreadMarker::new().expect("原生面板自查须在主线程运行");
+    let _app = NSApplication::sharedApplication(mtm);
+    let panel = crate::tray_panel::create(screen(0.0, 0.0, 264.0, 152.0), mtm);
+    assert!(panel
+        .styleMask()
+        .contains(NSWindowStyleMask::NonactivatingPanel));
+    assert!(panel.collectionBehavior().contains(
+        NSWindowCollectionBehavior::CanJoinAllSpaces
+            | NSWindowCollectionBehavior::FullScreenAuxiliary
+    ));
+    assert_eq!(panel.level(), NSStatusWindowLevel);
+    assert!(!panel.hidesOnDeactivate());
+    assert!(panel.canBecomeKeyWindow());
+    assert!(!panel.canBecomeMainWindow());
+    println!("PASS: 原生非激活面板、跨空间属性、层级与键盘焦点资格");
     let main = screen(0.0, 0.0, 1440.0, 900.0);
     // 1× 扩展屏在 2× 主屏右侧；坐标不随任一屏幕缩放比例变化。
     let external = screen(1440.0, 0.0, 1920.0, 1080.0);

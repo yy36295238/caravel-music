@@ -22,7 +22,18 @@
     "category": "Music",
     "shortDescription": "只属于你的本地音乐播放器",
     "icon": ["icons/32x32.png", "icons/128x128.png", "icons/icon.icns", "icons/icon.ico"],
-    "macOS": { "minimumSystemVersion": "12.0" },
+    "macOS": { "minimumSystemVersion": "12.0", "signingIdentity": "-" },
     "windows": { "nsis": { "languages": ["SimpChinese"], "displayLanguageSelector": false }, "webviewInstallMode": { "type": "downloadBootstrapper" } }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDQ4RjY1ODdFQ0REODE2QUUKUldTdUZ0ak5mbGoyU1BMVmJxSjc4NG1MUmNpWUxnSmJFU0hnNWJPdUJQVGQ1V2lwUEx6MStsVU4K",
+      "endpoints": [
+        "https://github.com/yy36295238/caravel-music/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }

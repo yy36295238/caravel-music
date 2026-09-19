@@ -1,6 +1,7 @@
 import { invoke, convertFileSrc } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import './styles.css';
+import { initUpdater, renderUpdater, checkForUpdates, installUpdate } from './updater.js';
 import { matching, collections, albumKey, albumName, artistName, musicFolders } from './library.js';
 import { parseLyrics, activeLyricIndex, lyricScrollTop, lyricSeekTime } from './lyrics.js';
 import { playbackSnapshot } from './menu-state.js';
@@ -60,6 +61,10 @@ const filter = { favorite: false, tags: [], query: '', artist: '', album: '', di
 let folderEntries = [];
 // 概览与歌曲明细共用列表区域，播放器和已建立的队列独立于导航。
 let browseKind = '', collectionTitle = '';
+// 设置与曲库切换视图，保留曲库筛选和唯一音频实例。
+let settingsOpen = false;
+// 返回设置时保留上次查看的分类，标签管理弹窗关闭后不会跳回外观。
+let settingsTab = 'settings-appearance';
 const selected = new Set();
 const audio = new Audio();
 audio.preload = 'metadata';
@@ -159,10 +164,10 @@ function mount() {
       <header class="topbar"><div class="breadcrumb">音乐库 ${icon('arrow')} <b>本地音乐</b></div>
         <label class="search">${icon('search')}<input id="search" type="search" placeholder="搜索歌曲、歌手、专辑、文件夹" aria-label="搜索歌曲、歌手、专辑、文件夹"><kbd>⌘ K</kbd></label>
       </header>
+      <nav class="mobile-nav" aria-label="移动版音乐筛选" hidden><button class="chip active" data-action="view" data-view="all">全部音乐</button><button class="chip" data-action="view" data-view="favorite">我喜欢的</button><button class="chip" data-action="browse" data-kind="albums">专辑</button><button class="chip" data-action="browse" data-kind="artists">歌手</button><button class="chip" data-action="settings">设置</button></nav>
       <div class="content"><section class="library" aria-label="音乐库">
         <div class="hero"><div class="hero-copy"><div class="eyebrow">YOUR MUSIC, YOUR MOMENTS</div><h1>${esc(resolveSkin(store.skin).heading)}</h1><p>不必联网，随时回到喜欢的旋律。</p><div class="hero-foot">${icon('disc')}<span>自己的音乐，自己的节奏</span></div></div><div class="hero-art" aria-hidden="true"><div class="vinyl"></div><span class="vinyl-label">The little things.</span></div></div>
-        <nav class="mobile-nav" aria-label="移动版音乐筛选" hidden><button class="chip active" data-action="view" data-view="all">全部音乐</button><button class="chip" data-action="view" data-view="favorite">我喜欢的</button><button class="chip" data-action="browse" data-kind="albums">专辑</button><button class="chip" data-action="browse" data-kind="artists">歌手</button><button class="chip" data-action="settings">设置</button></nav>
-        <div id="collection-path" class="collection-path" hidden></div><div class="library-head"><div><h2 id="view-title">本地音乐</h2><p id="library-count"></p></div><div class="actions"><button class="btn primary" data-action="play-all">${icon('play')}播放全部</button><button class="btn" data-action="import">${icon('plus')}导入音乐</button></div></div>
+        <div id="collection-path" class="collection-path" hidden></div><div class="library-head"><div><h2 id="view-title" tabindex="-1">本地音乐</h2><p id="library-count"></p></div><div class="actions"><button class="btn primary" data-action="play-all">${icon('play')}播放全部</button><button class="btn" data-action="import">${icon('plus')}导入音乐</button></div></div>
         <div id="scan-status" class="scan-status" role="status" hidden></div><div class="folder-filters" id="folder-filters" role="group" aria-label="按音乐文件夹筛选"></div><div class="filters" id="filters"></div>
         <div class="batch" id="batch" hidden><span id="selected-count"></span><div><button class="text-btn" data-action="assign-selected">设置标签</button><button class="text-btn" data-action="clear-selected">取消选择</button></div></div>
         <div id="collections" class="collection-list" hidden></div><div class="table-wrap"><table aria-label="歌曲列表"><thead><tr><th><input id="select-all" type="checkbox" aria-label="选择本页全部歌曲"></th><th>歌曲</th><th class="artist-col">歌手</th><th class="album-col">专辑</th><th class="tag-col">标签</th><th>时长</th><th><span class="sr-only">收藏</span></th><th><span class="sr-only">更多操作</span></th></tr></thead><tbody id="tracks"></tbody></table></div>
@@ -170,6 +175,7 @@ function mount() {
       </section>
       <aside class="right-panel" aria-label="当前歌曲歌词"><div class="right-title">正在播放<span></span></div><div id="now-info"></div><div id="inline-lyrics-slot"><section id="inline-lyrics" class="inline-lyrics" aria-label="当前歌曲歌词"><div class="detail-heading"><span>歌词</span><button class="text-btn" data-action="follow-lyrics" data-target="inline-lyrics-body" aria-pressed="true" hidden>跟随播放</button><details class="lyrics-options"><summary class="icon-btn" aria-label="歌词更多" title="歌词更多">${icon('dots')}</summary><div class="lyrics-options-panel"><div class="lyrics-actions"><span id="lyrics-source"></span><button class="text-btn" data-action="reload-lyrics">重新读取</button></div><div id="lyrics-timing" class="lyrics-timing" hidden aria-label="当前歌曲歌词校准"><button class="text-btn" data-action="lyric-offset" data-delta="0.2" title="歌词比人声慢时使用">提前 0.2s</button><button class="text-btn" id="lyrics-offset" data-action="lyric-offset" data-delta="reset" title="点击恢复原始时间"></button><button class="text-btn" data-action="lyric-offset" data-delta="-0.2" title="歌词比人声快时使用">延后 0.2s</button></div></div></details><button class="icon-btn" data-action="close-lyrics" aria-label="关闭歌词" title="关闭歌词">${icon('close')}</button></div><div id="inline-lyrics-body" class="lyrics-body" data-lyric-view tabindex="0" aria-label="主界面歌词"></div></section></div></aside>
       </div>
+      <section id="settings-page" class="settings-page" aria-labelledby="settings-title" hidden></section>
     </main>
   </div>
   <footer class="player" aria-label="音乐播放器"><div class="player-track" id="player-track"></div><div class="player-center"><div class="transport"><button class="icon-btn" data-action="previous" aria-label="上一首">${icon('prev')}</button><button class="play-button" id="play-toggle" data-action="toggle-play" aria-label="播放">${icon('play')}</button><button class="icon-btn" data-action="next" aria-label="下一首">${icon('next')}</button></div><div class="progress"><span id="elapsed">0:00</span><input id="seek" type="range" aria-label="播放进度" min="0" max="1" step="0.1" value="0"><span id="total">0:00</span></div></div><div class="player-tools"><button class="mode-button" data-action="mode" id="mode" aria-label="切换播放模式"></button><button class="icon-btn volume-control" data-action="mute" id="mute" aria-label="静音">${icon('volume')}</button><input class="volume-control" id="volume" type="range" aria-label="音量" min="0" max="1" step="0.01" value="${store.volume}"><span class="divider"></span><button class="lyrics-toggle" data-action="lyrics" aria-label="关闭歌词" aria-expanded="true" aria-controls="inline-lyrics">词</button><button class="icon-btn" data-action="queue" aria-label="播放队列">${icon('queue')}</button></div></footer>
@@ -193,12 +199,43 @@ function applySkin(id, save = false) {
     persist().then(() => toast(`已切换为${skin.name}，下次打开继续使用`)).catch(() => {});
   }
 }
-function showSettings() {
-  openModal('设置', `<h3 class="settings-heading">外观</h3><p class="settings-description">选择喜欢的皮肤，切换即保存。</p><div class="skin-options">${skins.map(skin => `<button class="skin-option" data-action="choose-skin" data-skin="${esc(skin.id)}" aria-pressed="${store.skin === skin.id}"><span class="skin-swatch" style="background:${skin.background};color:${skin.accent}" aria-hidden="true">${icon('music')}</span><span class="skin-copy"><strong>${esc(skin.name)}</strong><small>${esc(skin.description)}</small></span>${store.skin === skin.id ? icon('check') : ''}</button>`).join('')}</div><h3 class="settings-heading">音乐整理</h3><button class="settings-row" data-action="manage" data-kind="tags">${icon('tag')}<span><strong>标签管理</strong><small>创建、重命名或删除标签</small></span><em>${store.tags.length} 个</em>${icon('arrow')}</button>`, '把留声调成你喜欢的样子。');
+// 设置使用主内容区；返回时不重建曲库或中断播放。
+function showSettings(panelId = settingsTab) {
+  settingsTab = panelId;
+  $('#modal').close();
+  settingsOpen = true;
+  $('#settings-page').innerHTML = `<div class="settings-page-head"><div><h1 id="settings-title" tabindex="-1">设置</h1><p class="settings-description">把留声调成你喜欢的样子。</p></div><button class="btn" data-action="back-library">返回音乐库</button></div>
+    <div class="settings-tabs" role="tablist" aria-label="设置分类">${[['settings-appearance', '外观'], ['settings-organize', '音乐整理'], ['software-update', '软件更新']].map(([id, label]) => `<button id="tab-${id}" role="tab" data-action="settings-tab" data-panel="${id}" aria-controls="${id}" aria-selected="false" tabindex="-1">${label}</button>`).join('')}</div>
+    <section id="settings-appearance" class="settings-section" role="tabpanel" aria-labelledby="tab-settings-appearance" tabindex="0" hidden><h2 id="appearance-title" class="settings-heading">外观</h2><p class="settings-description">选择喜欢的皮肤，切换即保存。</p><div class="skin-options">${skins.map(skin => `<button class="skin-option" data-action="choose-skin" data-skin="${esc(skin.id)}" aria-pressed="${store.skin === skin.id}"><span class="skin-swatch" style="background:${skin.background};color:${skin.accent}" aria-hidden="true">${icon('music')}</span><span class="skin-copy"><strong>${esc(skin.name)}</strong><small>${esc(skin.description)}</small></span>${icon('check')}</button>`).join('')}</div></section>
+    <section id="settings-organize" class="settings-section" role="tabpanel" aria-labelledby="tab-settings-organize" tabindex="0" hidden><h2 id="organize-title" class="settings-heading">音乐整理</h2><p class="settings-description">用标签整理音乐，按自己的习惯查找歌曲。</p><button class="settings-row" data-action="manage" data-kind="tags">${icon('tag')}<span><strong>标签管理</strong><small>创建、重命名或删除标签</small></span><em id="settings-tag-count">${store.tags.length} 个</em>${icon('arrow')}</button></section>
+    <section id="software-update" class="settings-section" role="tabpanel" aria-labelledby="tab-software-update" tabindex="0" hidden><h2 id="update-title" class="settings-heading">软件更新</h2><p class="settings-description" data-update-version></p><p class="settings-description">启动时自动检查；点击安装后将保存播放进度并重启。</p><p class="update-message" role="status" data-update-message></p><progress class="update-progress" max="100" aria-label="更新下载进度" hidden></progress><pre class="update-notes" data-update-notes hidden></pre><div class="actions"><button class="btn" data-action="check-update">检查更新</button><button class="btn primary" data-action="install-update" hidden>下载并安装更新</button></div></section>`;
+  selectSettingsTab(settingsTab);
+  renderUpdater();
+  render();
+  $('.workspace').scrollTop = 0;
+  $('#settings-title').focus({ preventScroll: true });
+}
+// 切换只改变显隐，更新下载状态和当前控件节点保持不变。
+function selectSettingsTab(panelId) {
+  settingsTab = panelId;
+  document.querySelectorAll('[data-action="settings-tab"]').forEach(tab => {
+    const active = tab.dataset.panel === panelId;
+    tab.setAttribute('aria-selected', String(active));
+    tab.tabIndex = active ? 0 : -1;
+    document.getElementById(tab.dataset.panel).hidden = !active;
+  });
 }
 // ponytail: 不到一万首只扫描内存元数据；规模明显增长时再下推 SQL 查询。
 function filtered() { return matching(store.tracks, filter, store.directories); }
 function render() {
+  $('.content').hidden = settingsOpen;
+  $('#settings-page').hidden = !settingsOpen;
+  $('.search').hidden = settingsOpen;
+  document.querySelectorAll('[data-action="settings"]').forEach(button => {
+    button.classList.toggle('active', settingsOpen);
+    button.setAttribute('aria-pressed', String(settingsOpen));
+  });
+  if ($('#settings-tag-count')) $('#settings-tag-count').textContent = `${store.tags.length} 个`;
   const rows = filtered();
   const entries = browseKind ? collections(store.tracks, browseKind, filter.query) : [];
   const count = browseKind ? entries.length : rows.length;
@@ -208,18 +245,18 @@ function render() {
   $('#album-count').textContent = collections(store.tracks, 'albums').length;
   $('#artist-count').textContent = collections(store.tracks, 'artists').length;
   document.querySelectorAll('[data-action="browse"]').forEach(button => {
-    const active = button.dataset.kind === (browseKind || (filter.album ? 'albums' : filter.artist ? 'artists' : ''));
+    const active = !settingsOpen && button.dataset.kind === (browseKind || (filter.album ? 'albums' : filter.artist ? 'artists' : ''));
     button.classList.toggle('active', active); button.setAttribute('aria-pressed', String(active));
   });
   document.querySelectorAll('[data-action="view"]').forEach(button => {
-    const active = !browseKind && !filter.album && !filter.artist && (button.dataset.view === 'favorite' ? filter.favorite : !filter.favorite);
+    const active = !settingsOpen && !browseKind && !filter.album && !filter.artist && (button.dataset.view === 'favorite' ? filter.favorite : !filter.favorite);
     button.classList.toggle('active', active);
     button.setAttribute('aria-pressed', String(active));
   });
   const detailKind = filter.album ? 'albums' : filter.artist ? 'artists' : '';
   const heading = browseKind === 'albums' ? '专辑' : browseKind === 'artists' ? '歌手' : collectionTitle || (filter.favorite ? '我喜欢的' : '本地音乐');
   $('#view-title').textContent = heading;
-  $('.breadcrumb b').textContent = heading;
+  $('.breadcrumb b').textContent = settingsOpen ? '设置' : heading;
   $('#search').placeholder = browseKind === 'albums' ? '搜索专辑名称、歌手' : browseKind === 'artists' ? '搜索歌手' : '搜索歌曲、歌手、专辑、文件夹';
   $('#search').setAttribute('aria-label', $('#search').placeholder);
   $('#collection-path').hidden = !detailKind;
@@ -235,7 +272,7 @@ function render() {
   if (browseKind) $('#library-count').textContent = `${entries.length} ${browseKind === 'albums' ? '张专辑' : '位歌手'} · 根据本地歌曲信息整理`;
   $('#folder-filters').hidden = !!browseKind || !folderEntries.length;
   $('#folder-filters').innerHTML = `<span class="folder-filter-label">${icon('folder')}文件夹</span><button class="folder-chip ${filter.directoryId ? '' : 'active'}" data-action="folder" data-id="" aria-pressed="${!filter.directoryId}">全部</button>${folderEntries.map(item => `<button class="folder-chip ${item.directoryId === filter.directoryId ? 'active' : ''}" data-action="folder" data-id="${esc(item.directoryId)}" aria-pressed="${item.directoryId === filter.directoryId}" title="${esc(item.path)}"><span>${esc(item.name)}</span><small>${item.count}</small></button>`).join('')}`;
-  $('#filters').innerHTML = `<span>标签</span><button class="chip ${filter.tags.length ? '' : 'active'}" data-action="all-tags">全部</button>${store.tags.map(tag => `<button class="chip ${filter.tags.includes(tag) ? 'active' : ''}" data-action="tag" data-name="${esc(tag)}" aria-pressed="${filter.tags.includes(tag)}">${esc(tag)}</button>`).join('')}<button class="text-btn" data-action="settings">标签设置</button>`;
+  $('#filters').innerHTML = `<span>标签</span><button class="chip ${filter.tags.length ? '' : 'active'}" data-action="all-tags">全部</button>${store.tags.map(tag => `<button class="chip ${filter.tags.includes(tag) ? 'active' : ''}" data-action="tag" data-name="${esc(tag)}" aria-pressed="${filter.tags.includes(tag)}">${esc(tag)}</button>`).join('')}<button class="text-btn" data-action="settings" data-panel="settings-organize">标签设置</button>`;
   const visible = browseKind ? [] : rows.slice((page - 1) * pageSize, page * pageSize);
   $('#tracks').innerHTML = visible.map(t => `<tr class="${t.id === currentId ? 'current' : ''}" data-track="${esc(t.id)}"><td><input type="checkbox" data-select="${esc(t.id)}" ${selected.has(t.id) ? 'checked' : ''} aria-label="选择 ${esc(t.title)}"></td><td><div class="song-cell"><span class="cover art-${t.art}"><button class="row-play" data-action="play" data-id="${esc(t.id)}" aria-label="播放 ${esc(t.title)}">${icon(t.id === currentId && !audio.paused ? 'pause' : 'play')}</button>${playbackIndicator(t.id)}</span><button class="song-name" data-action="play" data-id="${esc(t.id)}" aria-label="点播 ${esc(t.title)}"><span class="song-title">${esc(t.title)}</span><span class="song-meta">${playable(t) ? (t.metadataError ? '标签读取异常' : '本地 MP3') : '文件缺失或目录离线'}</span></button></div></td><td class="cell-muted artist-col"><button class="metadata-link" data-action="collection" data-kind="artists" data-key="${esc(artistName(t))}" data-name="${esc(artistName(t))}">${esc(artistName(t))}</button></td><td class="cell-muted album-col"><button class="metadata-link" data-action="collection" data-kind="albums" data-key="${esc(albumKey(t))}" data-name="${esc(albumName(t))}">${esc(albumName(t))}</button></td><td class="tag-col">${t.tags.slice(0, 2).map(tag => `<span class="row-tag">${esc(tag)}</span>`).join('') || '<span class="row-tag">—</span>'}</td><td class="cell-muted">${t.seconds ? duration(t.seconds) : '--:--'}</td><td>${favoriteButton(t, ` ${t.title}`)}</td><td><button class="icon-btn" data-action="assign" data-id="${esc(t.id)}" aria-label="${esc(t.title)} 更多：标签" title="标签">${icon('dots')}</button></td></tr>`).join('');
   $('#empty').hidden = count > 0;
@@ -395,6 +432,7 @@ function setLyricsVisible(visible) {
 }
 /** 切换浏览范围时清理不相干的分类条件，已经播放的队列保持不变。 */
 function resetCollection() {
+  settingsOpen = false;
   browseKind = ''; collectionTitle = '';
   Object.assign(filter, { favorite: false, tags: [], artist: '', album: '', directoryId: '' });
   page = 1;
@@ -542,7 +580,8 @@ async function handleAction(button) {
     collectionTitle = name; render(); return;
   }
   if (action === 'lyrics') {
-    setLyricsVisible($('#inline-lyrics').hidden); return;
+    const visible = settingsOpen || $('#inline-lyrics').hidden;
+    settingsOpen = false; render(); setLyricsVisible(visible); return;
   }
   if (action === 'close-lyrics') { setLyricsVisible(false); return; }
   if (action === 'reload-lyrics') { await loadLyrics(); return; }
@@ -567,8 +606,19 @@ async function handleAction(button) {
     else if (Number.isFinite(audio.duration)) audio.currentTime = Math.min(position, audio.duration);
     syncLyrics(true); await persist(); return;
   }
-  if (action === 'settings') { showSettings(); return; }
-  if (action === 'choose-skin') { applySkin(button.dataset.skin, true); showSettings(); return; }
+  if (action === 'settings-tab') { selectSettingsTab(button.dataset.panel); return; }
+  if (action === 'check-update') { await checkForUpdates(); return; }
+  if (action === 'install-update') { await installUpdate(); return; }
+  if (action === 'settings') { showSettings(button.dataset.panel); return; }
+  if (action === 'back-library') {
+    settingsOpen = false; render(); $('#view-title').focus({ preventScroll: true }); return;
+  }
+  if (action === 'choose-skin') {
+    applySkin(button.dataset.skin, true);
+    // 只更新选中态，键盘焦点留在当前皮肤选项。
+    document.querySelectorAll('[data-action="choose-skin"]').forEach(option => option.setAttribute('aria-pressed', String(option.dataset.skin === store.skin)));
+    return;
+  }
   if (action === 'close') { $('#modal').close(); return; }
   if (action === 'import') { showImport(); return; }
   if (action === 'open-directory') { await invoke('open_directory', { id }); return; }
@@ -615,10 +665,12 @@ async function handleAction(button) {
   if (action === 'favorite') { const track = store.tracks.find(t => t.id === id); if (track) { const value = !track.favorite; await invoke('set_favorite', { id, value }); track.favorite = value; } }
   if (action === 'view') { resetCollection(); filter.favorite = view === 'favorite'; }
   if (action === 'folder') {
+    // 重建按钮后只恢复原有键盘焦点，避免鼠标点击被程序聚焦误判为键盘操作。
+    const restoreFocus = button.matches(':focus-visible');
     filter.directoryId = folderEntries.some(item => item.directoryId === id) ? id : '';
     // 切换来源时清空批量选择，防止误操作隐藏的歌曲；播放队列保持不变。
     selected.clear(); page = 1; render();
-    [...document.querySelectorAll('[data-action="folder"]')].find(item => item.dataset.id === filter.directoryId)?.focus({ preventScroll: true });
+    if (restoreFocus) [...document.querySelectorAll('[data-action="folder"]')].find(item => item.dataset.id === filter.directoryId)?.focus({ preventScroll: true });
     return;
   }
   if (action === 'tag') { filter.tags = filter.tags.includes(name) ? filter.tags.filter(t => t !== name) : [...filter.tags, name]; page = 1; }
@@ -701,11 +753,19 @@ function bindEvents() {
     });
   }
   document.addEventListener('keydown', event => {
+    // 标准横向 Tab 键盘操作；焦点与选中面板一起移动。
+    if (event.target.closest('.settings-tabs') && ['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) {
+      event.preventDefault();
+      const tabs = [...document.querySelectorAll('[data-action="settings-tab"]')];
+      const index = tabs.indexOf(event.target);
+      const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
+      selectSettingsTab(tabs[next].dataset.panel); tabs[next].focus(); return;
+    }
     if (event.key === 'Escape' && !$('#modal').open && $('.lyrics-options').open) {
       $('.lyrics-options').open = false; $('.lyrics-options summary').focus(); return;
     }
-    if (event.key === 'Escape' && !$('#modal').open && !$('#inline-lyrics').hidden) { setLyricsVisible(false); return; }
-    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') { event.preventDefault(); $('#search').focus(); return; }
+    if (event.key === 'Escape' && !settingsOpen && !$('#modal').open && !$('#inline-lyrics').hidden) { setLyricsVisible(false); return; }
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') { event.preventDefault(); settingsOpen = false; render(); $('#search').focus(); return; }
     if (event.code === 'Space' && !event.target.closest('input, textarea, select, button, a, summary, [contenteditable], dialog')) { event.preventDefault(); togglePlay(); }
   });
 }
@@ -736,6 +796,8 @@ async function initialize() {
       handleAction({ dataset: { action: event.payload } }).catch(error => reportError('菜单栏播放控制', error));
     }
   });
+  // 更新检查不阻塞播放器初始化；只有安装前才暂停并等待已有保存队列完成。
+  void initUpdater(async () => { audio.pause(); await persist(); });
   syncMenuPlayer();
   await listen('save-playback', () => { void persist().catch(() => {}); });
   await listen('before-quit', async () => {

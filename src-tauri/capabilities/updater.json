@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "updater",
+  "description": "仅主播放器可检查、下载签名更新并重启；菜单栏浮层无更新权限。",
+  "windows": ["main"],
+  "permissions": ["updater:default", "process:allow-restart"]
+}

@@ -76,12 +76,13 @@ impl Library {
             .lock()
             .map_err(|_| "数据库锁异常，请重启应用".into())
     }
-    /// 仅加载标签；旧分组保留在数据库中，不再进入界面或筛选。
+    /// 仅加载启用来源的歌曲；移除来源保留收藏与标签供重新添加恢复，但不进入曲库。
+    /// 旧分组保留在数据库中，不再进入界面或筛选。
     pub fn load(&self) -> Result<LibraryData> {
         let conn = self.conn()?;
         let mut statement = conn.prepare("SELECT t.id,t.directory_id,t.filename,t.title,t.artist,t.album,t.seconds,
             t.available AND d.active AND d.status<>'offline',t.favorite,t.metadata_error FROM tracks t JOIN directories d ON d.id=t.directory_id
-            ORDER BY t.title COLLATE NOCASE,t.id").map_err(error)?;
+            WHERE d.active=1 ORDER BY t.title COLLATE NOCASE,t.id").map_err(error)?;
         let mut tracks: Vec<Track> = statement
             .query_map([], |r| {
                 let id: String = r.get(0)?;

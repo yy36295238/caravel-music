@@ -1,5 +1,7 @@
 // 可运行自查：只使用内存样本，不访问个人音乐文件或应用数据。
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { runInNewContext } from 'node:vm';
 import { matching, collections, albumKey, musicFolders } from '../src/library.js';
 import { parseLyrics, activeLyricIndex, lyricScrollTop, lyricSeekTime } from '../src/lyrics.js';
 import { playbackSnapshot } from '../src/menu-state.js';
@@ -37,6 +39,26 @@ for (const path of ['C:\\音乐', '\\\\?\\C:\\音乐', '\\\\server\\音乐', '\\
   assert.equal(musicFolders([], [{ id: 'root', path }])[0].name, '音乐');
 }
 console.log('PASS: 导入目录末级名称、来源歌曲汇总、同名目录隔离、全部恢复及 Windows / UNC 路径');
+// 执行真实事件处理函数，验证重建按钮时鼠标不抢焦点、键盘焦点不丢失。
+const mainSource = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
+const actionSource = mainSource.slice(mainSource.indexOf('async function handleAction('), mainSource.indexOf('\nfunction bindEvents('));
+for (const focusVisible of [false, true]) {
+  let rendered = false, focused = false;
+  const folderFilter = { directoryId: '' }, selected = new Set(['1']);
+  const replacement = { dataset: { id: 'music' }, focus() { assert.ok(rendered); focused = true; } };
+  const handleAction = runInNewContext(`${actionSource}\nhandleAction`, {
+    filter: folderFilter, selected, page: 2, folderEntries: [{ directoryId: 'music' }],
+    render() { rendered = true; }, document: { querySelectorAll: () => [replacement] }
+  });
+  await handleAction({ dataset: { action: 'folder', id: 'music' }, matches(selector) {
+    assert.equal(selector, ':focus-visible'); assert.equal(rendered, false); return focusVisible;
+  } });
+  assert.equal(folderFilter.directoryId, 'music');
+  assert.equal(selected.size, 0);
+  assert.ok(rendered);
+  assert.equal(focused, focusVisible);
+}
+console.log('PASS: 文件夹筛选鼠标点击不强制聚焦、键盘操作恢复焦点');
 const parsed = parseLyrics('\uFEFF[ti:歌名]\n[offset:+500]\n[00:03.250][00:01.50]一句\n[00:01.500]译文\n[00:05]尾句');
 assert.deepEqual(parsed.lines, [{ time: 1, text: '一句\n译文' }, { time: 2.75, text: '一句' }, { time: 4.5, text: '尾句' }]);
 assert.equal(activeLyricIndex(parsed.lines, 0.9), -1);

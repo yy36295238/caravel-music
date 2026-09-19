@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="color-scheme" content="dark light"><link rel="icon" href="data:,"><title>设置页面自查</title></head>
+<body><div id="app"></div><output id="check-result" style="position:fixed;bottom:0;left:0;z-index:20;background:#fff;color:#111">正在自查…</output>
+<script type="module">
+// npm run dev 后打开 /scripts/check-settings.html；只用模拟 IPC，不读取或修改个人曲库。
+import { mockIPC } from '@tauri-apps/api/mocks';
+const settings = {};
+mockIPC((command, args) => {
+  if (command === 'load_library') return { tracks: [], directories: [], tags: ['安静'], settings };
+  if (command === 'plugin:app|version') return '0.1.0';
+  // 带 ?update 可检查真实插件前端的下载进度与安装按钮，不执行原生安装。
+  if (command === 'plugin:updater|check') return location.search.includes('update')
+    ? { rid: 1, currentVersion: '0.1.0', version: '0.2.0', body: '设置与自动更新示例', rawJson: {} } : null;
+  if (command === 'plugin:updater|download') {
+    args.onEvent.onmessage({ event: 'Started', data: { contentLength: 100 } });
+    args.onEvent.onmessage({ event: 'Progress', data: { chunkLength: 100 } });
+    return 2;
+  }
+  if (command === 'plugin:updater|install' && !Number.isFinite(settings.position)) throw new Error('安装前尚未保存进度');
+  if (command === 'save_settings') Object.assign(settings, args.settings);
+}, { shouldMockEvents: true });
+const $ = selector => document.querySelector(selector);
+const frame = () => new Promise(requestAnimationFrame);
+const assert = (condition, message) => { if (!condition) throw new Error(message); };
+// 走页面真实事件委托，下一帧确认异步保存与 DOM 更新后的结果。
+const click = async selector => { $(selector).click(); await frame(); };
+try {
+  await import('../src/main.js');
+  await frame();
+  const player = $('.player');
+  const library = $('.library');
+  await click('[data-view="favorite"]');
+  await click('.settings-entry');
+  assert(!$('#modal').open && !$('#settings-page').hidden && $('.content').hidden, '设置应在主内容区展示');
+  assert($('.settings-entry').getAttribute('aria-pressed') === 'true', '设置导航应选中');
+  assert($('[data-view="favorite"]').getAttribute('aria-pressed') === 'false', '曲库导航不能同时选中');
+  assert($('.search').hidden && $('#settings-tag-count').textContent === '1 个', '设置应隐藏曲库搜索并显示标签数量');
+  const skin = $('[data-skin="light"]');
+  skin.focus();
+  await click('[data-skin="light"]');
+  assert(document.activeElement === skin && settings.skin === 'light', '换肤应保留焦点并保存选择');
+  assert(skin.getAttribute('aria-pressed') === 'true' && document.body.dataset.theme === 'light', '皮肤选中态应同步');
+  assert(!$('#settings-appearance').hidden && $('#settings-organize').hidden && $('#software-update').hidden, '默认只显示外观');
+  await click('#tab-settings-organize');
+  assert($('#settings-appearance').hidden && !$('#settings-organize').hidden && $('#software-update').hidden, '音乐整理应独占内容区');
+  await click('[data-action="manage"]');
+  assert($('#modal').open, '标签管理应可打开');
+  await click('.settings-back');
+  assert(!$('#modal').open && !$('#settings-page').hidden, '返回设置应关闭标签管理弹窗');
+  assert(!$('#settings-organize').hidden, '标签返回应保留音乐整理 Tab');
+  const updatePanel = $('#software-update');
+  $('#tab-settings-organize').focus();
+  $('#tab-settings-organize').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+  assert(document.activeElement === $('#tab-software-update') && !updatePanel.hidden, '右方向键应选择并聚焦软件更新');
+  const updateMessage = $('[data-update-message]').textContent;
+  $('#tab-software-update').dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }));
+  assert(document.activeElement === $('#tab-settings-appearance') && !$('#settings-appearance').hidden, 'Home 应回到外观');
+  $('#tab-settings-appearance').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
+  assert(document.activeElement === $('#tab-software-update') && !updatePanel.hidden, '左方向键应循环到软件更新');
+  assert($('#software-update') === updatePanel && $('[data-update-message]').textContent === updateMessage, 'Tab 切换应保留更新节点和状态');
+  assert(document.querySelectorAll('[role="tabpanel"]:not([hidden])').length === 1, '只能有一个可见面板');
+  await click('[data-action="back-library"]');
+  assert($('#settings-page').hidden && !$('.content').hidden && !$('.search').hidden, '返回曲库应恢复内容和搜索');
+  assert($('[data-view="favorite"]').getAttribute('aria-pressed') === 'true', '返回曲库应保留原筛选');
+  await click('.settings-entry');
+  await click('[data-kind="albums"]');
+  assert($('#settings-page').hidden && $('#view-title').textContent === '专辑', '侧栏导航应能退出设置');
+  await click('.settings-entry');
+  await click('.lyrics-toggle');
+  assert($('#settings-page').hidden && !$('#inline-lyrics').hidden, '设置中打开歌词应返回曲库');
+  assert($('.player') === player && $('.library') === library, '视图切换不能重建播放器或曲库节点');
+  await click('.settings-entry');
+  await click('#tab-settings-appearance');
+  await click('[data-skin="dark"]');
+  $('#check-result').textContent = 'PASS：Tab 显隐、键盘切换、更新状态保留、设置导航、换肤、标签返回及播放器节点保留';
+} catch (error) {
+  $('#check-result').textContent = `FAIL：${error.message}`;
+  console.error('设置页面自查失败', error);
+}
+</script></body></html>

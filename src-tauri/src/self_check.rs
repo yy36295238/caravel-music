@@ -151,6 +151,14 @@ fn check(root: &std::path::Path) -> Result<(), String> {
     library.finish_scan(&id, "incomplete", "error", false)?;
     assert!(library.load()?.tracks[0].available);
     library.remove_directory(&id)?;
+    // 移除来源后立即退出曲库，刷新及重启也不能带回旧记录。
+    assert!(library.load()?.tracks.is_empty());
+    scanner::scan(&library, None, |_| {})?;
+    assert!(library.load()?.tracks.is_empty());
+    assert!(Library::open(&root.join("data/library.sqlite"))?
+        .load()?
+        .tracks
+        .is_empty());
     assert!(library.directory_path(&id).is_err());
     assert!(library.media_path(&track.id).is_err());
     assert!(lyrics::load(&library, &track.id).is_err());
@@ -235,7 +243,11 @@ fn check(root: &std::path::Path) -> Result<(), String> {
     fs::rename(&music, &offline).map_err(|e| e.to_string())?;
     assert!(library.directory_path(&id).is_err());
     assert_eq!(scanner::scan(&library, Some(&id), |_| {})?.removed, 0);
-    assert_eq!(library.load()?.tracks.len(), 2);
+    let offline_tracks = library.load()?.tracks;
+    assert_eq!(offline_tracks.len(), 2);
+    assert!(offline_tracks
+        .iter()
+        .any(|t| t.id == track.id && !t.available));
     fs::rename(&offline, &music).map_err(|e| e.to_string())?;
     let cancelled = scanner::scan(&library, Some(&id), |progress| {
         if !progress.finished {

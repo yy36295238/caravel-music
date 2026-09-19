@@ -64,6 +64,28 @@
 
 macOS 使用系统 `hdiutil` 生成并校验 DMG，不依赖 Finder 排版脚本；失败时保留上一份有效 DMG。应用采用本机 ad-hoc 签名，不等同于开发者证书签名或公证。
 
+### 应用内更新
+
+启动时自动检查 GitHub Releases 的 `latest.json`，也可在「设置 → 软件更新」手动检查。发现新版本后点击「下载并安装更新」：下载期间不暂停音乐，签名校验通过后保存播放进度并安装重启。更新只替换应用，曲库及偏好保留。检查失败可稍后重试；安装前保存失败会中止安装。
+
+没有更新功能的旧安装包需要先手动安装一次含本功能的版本，此后才支持应用内升级。更新包签名与 Apple 开发者签名、公证是两回事。
+
+发布使用现有 `.github/workflows/build.yml`：
+
+1. 同步 `package.json`、`package-lock.json`、`src-tauri/Cargo.toml`、`src-tauri/Cargo.lock` 和 `src-tauri/tauri.conf.json` 的版本，推送对应 `v版本号` 标签。
+2. 工作流构建 macOS Apple Silicon、Intel 和 Windows NSIS，生成签名更新包及完整 `latest.json`，上传至草稿 Release。等待所有平台构建和自查成功后再发布草稿，客户端只读取最新的正式 Release。
+3. 仓库 Secret `TAURI_SIGNING_PRIVATE_KEY` 保存留声专用私钥；本地备份位于 `~/.config/liusheng/updater.key`，公钥在 Tauri 配置中。当前密钥无密码，`TAURI_SIGNING_PRIVATE_KEY_PASSWORD` 留空即可。私钥不得提交到源码仓库，也不要替换已发行应用内的公钥。
+
+日常 `./run.sh build` 不要求更新签名密钥。需要本地验证 macOS 签名包时：
+
+```bash
+TAURI_SIGNING_PRIVATE_KEY="$HOME/.config/liusheng/updater.key" TAURI_SIGNING_PRIVATE_KEY_PASSWORD='' \
+  npm run app:build -- --bundles app --config '{"bundle":{"createUpdaterArtifacts":true}}'
+node scripts/check-updater.mjs
+```
+
+前端更新自查使用模拟原生接口，覆盖无更新、网络/签名失败、重复请求、保存失败与重启重试。运行 `npm run dev` 后打开 `/scripts/check-settings.html?update` 可查看模拟更新交互，不会安装软件。
+
 原有 npm 命令仍可使用：`npm run app:dev`、`npm run check`、`npm run app:build:mac`（默认生成当前架构 DMG）。Windows PowerShell 可用 `npm ci`、`npm run app:dev` 和 `npm run app:build -- --bundles nsis`，不要求安装 Bash。
 
 `./run.sh clean`（也支持 `sh run.sh clean`）删除项目内 `src-tauri/target` 和 `dist`，包括 target 内生成的 .app / NSIS；保留 `artifacts/` 中的 DMG、`node_modules` 和用户音乐数据。请在开发或打包停止后执行，下次构建会重新编译。
@@ -147,6 +169,8 @@ macOS 顶部菜单栏显示留声的四柱图标：悬浮展开小播放器，�
 ### 浮层停留与播放模式
 
 鼠标停留在菜单栏浮层（含边缘）或图标到浮层的过渡区域时保持显示；连续离开约 450 毫秒才收起。自动收起直接检查 macOS 鼠标与窗口位置，不依赖未激活网页的鼠标进入 / 离开事件；短暂失焦不会打断按钮操作。关闭按钮、Esc 和再次点击固定图标仍可主动收起。
+
+菜单栏 WebView 由原生非激活 `NSPanel` 承载，使用跨桌面、全屏辅助属性与状态栏窗口层级；展开不再调用普通 Tauri 窗口的显示和应用激活接口。在独立验收应用中，通过临时入口调用共用展开逻辑，已确认“文本编辑”处于全屏时，悬浮展开和固定展开的面板均处于当前空间且被系统判定可见，主窗口仍在原桌面；悬浮展开不激活留声。面板按钮状态同步和 Esc 收起已实测。真实鼠标触发菜单栏图标、跨显示器全屏和 macOS 12 仍需人工补验。
 
 浮层左下新增播放模式按钮，依次切换「顺序播放 → 单曲循环 → 随机播放」，与主播放器的队列和已保存模式同步，不改变当前歌曲的播放进度。本轮由开发侧执行编译和基础自查，鼠标与按钮交互由用户验收；未重新生成安装包。
 

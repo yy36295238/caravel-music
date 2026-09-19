@@ -7,6 +7,8 @@ mod models;
 mod scanner;
 mod self_check;
 mod tray;
+#[cfg(target_os = "macos")]
+mod tray_panel;
 
 use std::sync::Arc;
 use tauri::{Emitter, Manager};
@@ -19,6 +21,8 @@ fn main() {
     }
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .plugin(
             tauri_plugin_log::Builder::new()
                 .level(log::LevelFilter::Info)
