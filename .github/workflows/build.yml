@@ -54,6 +54,8 @@ jobs:
           tagName: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
           releaseName: 留声 ${{ github.ref_name }}
           releaseDraft: true
+          # GitHub 会移除附件名中的中文，固定英文名使更新清单能匹配签名附件。
+          assetNamePattern: liusheng_[version]_[platform]_[arch][setup][ext]
           includeUpdaterJson: true
           updaterJsonPreferNsis: true
       - name: Validate native library and media boundary
