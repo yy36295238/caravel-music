@@ -274,7 +274,7 @@ function render() {
   $('#folder-filters').innerHTML = `<span class="folder-filter-label">${icon('folder')}文件夹</span><button class="folder-chip ${filter.directoryId ? '' : 'active'}" data-action="folder" data-id="" aria-pressed="${!filter.directoryId}">全部</button>${folderEntries.map(item => `<button class="folder-chip ${item.directoryId === filter.directoryId ? 'active' : ''}" data-action="folder" data-id="${esc(item.directoryId)}" aria-pressed="${item.directoryId === filter.directoryId}" title="${esc(item.path)}"><span>${esc(item.name)}</span><small>${item.count}</small></button>`).join('')}`;
   $('#filters').innerHTML = `<span>标签</span><button class="chip ${filter.tags.length ? '' : 'active'}" data-action="all-tags">全部</button>${store.tags.map(tag => `<button class="chip ${filter.tags.includes(tag) ? 'active' : ''}" data-action="tag" data-name="${esc(tag)}" aria-pressed="${filter.tags.includes(tag)}">${esc(tag)}</button>`).join('')}<button class="text-btn" data-action="settings" data-panel="settings-organize">标签设置</button>`;
   const visible = browseKind ? [] : rows.slice((page - 1) * pageSize, page * pageSize);
-  $('#tracks').innerHTML = visible.map(t => `<tr class="${t.id === currentId ? 'current' : ''}" data-track="${esc(t.id)}"><td><input type="checkbox" data-select="${esc(t.id)}" ${selected.has(t.id) ? 'checked' : ''} aria-label="选择 ${esc(t.title)}"></td><td><div class="song-cell"><span class="cover art-${t.art}"><button class="row-play" data-action="play" data-id="${esc(t.id)}" aria-label="播放 ${esc(t.title)}">${icon(t.id === currentId && !audio.paused ? 'pause' : 'play')}</button>${playbackIndicator(t.id)}</span><button class="song-name" data-action="play" data-id="${esc(t.id)}" aria-label="点播 ${esc(t.title)}"><span class="song-title">${esc(t.title)}</span><span class="song-meta">${playable(t) ? (t.metadataError ? '标签读取异常' : '本地 MP3') : '文件缺失或目录离线'}</span></button></div></td><td class="cell-muted artist-col"><button class="metadata-link" data-action="collection" data-kind="artists" data-key="${esc(artistName(t))}" data-name="${esc(artistName(t))}">${esc(artistName(t))}</button></td><td class="cell-muted album-col"><button class="metadata-link" data-action="collection" data-kind="albums" data-key="${esc(albumKey(t))}" data-name="${esc(albumName(t))}">${esc(albumName(t))}</button></td><td class="tag-col">${t.tags.slice(0, 2).map(tag => `<span class="row-tag">${esc(tag)}</span>`).join('') || '<span class="row-tag">—</span>'}</td><td class="cell-muted">${t.seconds ? duration(t.seconds) : '--:--'}</td><td>${favoriteButton(t, ` ${t.title}`)}</td><td><button class="icon-btn" data-action="assign" data-id="${esc(t.id)}" aria-label="${esc(t.title)} 更多：标签" title="标签">${icon('dots')}</button></td></tr>`).join('');
+  $('#tracks').innerHTML = visible.map(t => `<tr class="${t.id === currentId ? 'current' : ''}" data-track="${esc(t.id)}"><td><input type="checkbox" data-select="${esc(t.id)}" ${selected.has(t.id) ? 'checked' : ''} aria-label="选择 ${esc(t.title)}"></td><td><div class="song-cell"><span class="cover art-${t.art}"><button class="row-play" data-action="play" data-id="${esc(t.id)}" aria-label="播放 ${esc(t.title)}">${icon(t.id === currentId && !audio.paused ? 'pause' : 'play')}</button>${playbackIndicator(t.id)}</span><button class="song-name" data-action="play" data-id="${esc(t.id)}" aria-label="点播 ${esc(t.title)}"><span class="song-title">${esc(t.title)}</span><span class="song-meta">${playable(t) ? (t.metadataError ? '标签读取异常' : '本地 MP3') : '文件缺失或目录离线'}</span></button></div></td><td class="cell-muted artist-col"><button class="metadata-link" data-action="collection" data-kind="artists" data-key="${esc(artistName(t))}" data-name="${esc(artistName(t))}">${esc(artistName(t))}</button></td><td class="cell-muted album-col"><button class="metadata-link" data-action="collection" data-kind="albums" data-key="${esc(albumKey(t))}" data-name="${esc(albumName(t))}">${esc(albumName(t))}</button></td><td class="tag-col">${t.tags.slice(0, 2).map(tag => `<span class="row-tag">${esc(tag)}</span>`).join('') || '<span class="row-tag">—</span>'}</td><td class="cell-muted">${t.seconds ? duration(t.seconds) : '--:--'}</td><td>${favoriteButton(t, ` ${t.title}`)}</td><td><button class="icon-btn" data-action="track-more" data-id="${esc(t.id)}" aria-label="${esc(t.title)} 更多" title="更多">${icon('dots')}</button></td></tr>`).join('');
   $('#empty').hidden = count > 0;
   $('#empty').innerHTML = `${icon('search')}没有找到${browseKind === 'albums' ? '专辑' : browseKind === 'artists' ? '歌手' : '歌曲'}<br><button class="text-btn" data-action="clear-filters">清空筛选</button>`;
   $('#table-end').hidden = !!browseKind;
@@ -301,7 +301,7 @@ function renderPlayer() {
     $('#play-toggle').innerHTML = icon('play');
     renderPlaybackIndicators(); return;
   }
-  $('#player-track').innerHTML = `<span class="cover art-${track.art}">${playbackIndicator(track.id)}</span><div class="track-label"><strong>${esc(track.title)}</strong><small>${esc(track.artist)}</small></div>${favoriteButton(track, '当前歌曲')}<button class="icon-btn" data-action="assign-current" aria-label="当前歌曲更多：标签" title="标签">${icon('dots')}</button>`;
+  $('#player-track').innerHTML = `<span class="cover art-${track.art}">${playbackIndicator(track.id)}</span><div class="track-label"><strong>${esc(track.title)}</strong><small>${esc(track.artist)}</small></div>${favoriteButton(track, '当前歌曲')}<button class="icon-btn" data-action="track-more" data-id="${esc(track.id)}" aria-label="当前歌曲更多" title="更多">${icon('dots')}</button>`;
   $('#now-info').innerHTML = `<div class="now-info"><div><h3>${esc(track.title)}</h3><p>${esc(track.artist)}</p></div>${favoriteButton(track, '详情歌曲')}</div>`;
   const rowButton = [...document.querySelectorAll('.row-play')].find(button => button.dataset.id === track.id);
   if (rowButton) {
@@ -555,6 +555,42 @@ function showAssign(ids) {
   const batch = tracks.length > 1;
   openModal(batch ? `设置 ${tracks.length} 首歌曲的标签` : tracks[0].title, `<form id="assign-form" data-ids="${esc(JSON.stringify(ids))}">${batch ? '<label class="check-label">操作<select class="dialog-input" name="operation"><option value="add">添加所选标签</option><option value="remove">移除所选标签</option></select></label>' : ''}<fieldset class="assign-section"><legend>标签 · 可多选</legend>${store.tags.map(name => `<label class="check-label"><input type="checkbox" name="tags" value="${esc(name)}" ${!batch && tracks[0].tags.includes(name) ? 'checked' : ''}>${esc(name)}</label>`).join('') || '<span class="note">还没有标签，可到“设置”中创建。</span>'}</fieldset><div class="dialog-footer"><button class="btn" type="button" data-action="close">取消</button><button class="btn primary" type="submit">保存</button></div></form>`, batch ? '只修改所选标签，保留其他标签。' : '取消勾选即可移除，音频文件不会被修改。');
 }
+/** 列表与播放器共用单曲操作，删除必须另行确认具体文件。 */
+function showTrackActions(id, confirmDelete = false) {
+  const track = store.tracks.find(t => t.id === id);
+  if (!track) { toast('歌曲已不在曲库中'); return; }
+  const source = store.directories.find(dir => dir.id === track.directoryId)?.path || '';
+  const content = confirmDelete
+    ? `<p class="dialog-desc">将永久删除此 MP3 文件，同时移除曲库记录。此操作无法撤销。</p><div class="dialog-footer"><button class="btn" data-action="track-more" data-id="${esc(id)}">取消</button><button class="btn danger" data-action="confirm-delete-track" data-id="${esc(id)}" ${scanning ? 'disabled' : ''}>永久删除文件</button></div>`
+    : `<div class="dialog-list"><button class="btn" data-action="assign" data-id="${esc(id)}">${icon('tag')}设置标签</button><button class="btn" data-action="dislike-track" data-id="${esc(id)}">不喜欢</button><button class="btn danger" data-action="delete-track" data-id="${esc(id)}" ${scanning ? 'disabled' : ''}>${icon('trash')}删除</button></div><p class="note">不喜欢：保留文件，以后不再出现在曲库和播放队列中。${scanning ? '扫描期间暂时无法删除文件。' : ''}</p>`;
+  openModal(confirmDelete ? '确认删除歌曲' : track.title, `<p class="track-file">${esc(track.filename)}<br><span>${esc(source)}</span></p>${content}<p id="track-action-status" class="note" role="status"></p>`);
+}
+// 防止重复点击或重新打开弹窗时，对同一文件重复执行不可逆操作。
+let trackActionPending = false;
+/** 单曲移除后复用曲库重载，统一清理当前播放、队列、选择和歌词偏移。 */
+async function removeTrackFromLibrary(id, deleteFile) {
+  if (trackActionPending) return;
+  trackActionPending = true;
+  const status = $('#track-action-status');
+  if (status) status.textContent = '正在处理…';
+  try {
+    if (currentId === id) {
+      // Windows 上先释放正在播放的文件句柄；失败时保留歌曲与进度，允许重新播放。
+      restorePosition = mediaId === id ? audio.currentTime : restorePosition;
+      playToken++; audio.pause(); audio.removeAttribute('src'); audio.load(); mediaId = '';
+    }
+    await saveChain;
+    await invoke(deleteFile ? 'delete_track' : 'dislike_track', { id });
+    $('#modal').close();
+    await reloadLibrary();
+    toast(deleteFile ? '已删除 MP3 文件' : '已标记不喜欢，以后不再播放');
+  } catch (error) {
+    reportError(deleteFile ? '删除歌曲' : '标记不喜欢', error);
+    if (status?.isConnected) status.textContent = String(error);
+  } finally {
+    trackActionPending = false;
+  }
+}
 async function saveAssign(form) {
   const ids = JSON.parse(form.dataset.ids);
   const data = new FormData(form);
@@ -650,7 +686,9 @@ async function handleAction(button) {
     return;
   }
   if (action === 'manage') { showManage(); return; }
-  if (action === 'assign' || action === 'assign-current' || action === 'assign-selected') { showAssign(action === 'assign-selected' ? [...selected] : [id || currentId]); return; }
+  if (action === 'track-more' || action === 'delete-track') { showTrackActions(id, action === 'delete-track'); return; }
+  if (action === 'dislike-track' || action === 'confirm-delete-track') { await removeTrackFromLibrary(id, action === 'confirm-delete-track'); return; }
+  if (action === 'assign' || action === 'assign-selected') { showAssign(action === 'assign-selected' ? [...selected] : [id]); return; }
   if (action === 'rename') {
     openModal('重命名', `<form id="category-form" data-old="${esc(name)}"><input class="dialog-input" name="name" value="${esc(name)}" maxlength="30" aria-label="标签名称" required><div class="dialog-footer"><button type="submit" class="btn primary">保存名称</button></div></form>`); return;
   }

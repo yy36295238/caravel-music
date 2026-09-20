@@ -69,6 +69,16 @@ pub async fn remove_directory(app: AppHandle, id: String) -> Result<(), String> 
 pub async fn set_favorite(app: AppHandle, id: String, value: bool) -> Result<(), String> {
     run(app, "favorite", move |db| db.favorite(&id, value)).await
 }
+/// 不喜欢仅隐藏歌曲并清理队列，不修改磁盘文件。
+#[tauri::command]
+pub async fn dislike_track(app: AppHandle, id: String) -> Result<(), String> {
+    run(app, "dislike_track", move |db| db.dislike(&id)).await
+}
+/// 页面确认后按歌曲 ID 删除，禁止前端直接传入文件路径。
+#[tauri::command]
+pub async fn delete_track(app: AppHandle, id: String) -> Result<(), String> {
+    run(app, "delete_track", move |db| db.delete_track(&id)).await
+}
 #[tauri::command]
 pub async fn edit_category(
     app: AppHandle,

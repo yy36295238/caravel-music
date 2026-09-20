@@ -67,6 +67,8 @@ fn main() {
             commands::cancel_scan,
             commands::remove_directory,
             commands::set_favorite,
+            commands::dislike_track,
+            commands::delete_track,
             commands::edit_category,
             commands::assign_categories,
             commands::save_settings,

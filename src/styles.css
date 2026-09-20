@@ -175,6 +175,10 @@ dialog::backdrop { background: #0007; }
 /* 标题只承接弹窗初始焦点，不是可操作控件，不显示焦点框。 */
 .dialog-head h2:focus { outline: none; }
 .dialog-desc { color: var(--muted); font-size: 12px; line-height: 1.8; margin: 0 0 20px; }
+.track-file { font-size: 13px; line-height: 1.8; overflow-wrap: anywhere; }
+.track-file span { color: var(--muted); font-size: 12px; }
+.btn.danger { color: #ed5b68; border-color: currentColor; }
+body[data-theme="light"] .btn.danger { color: #bd2636; }
 .dialog-list { display: grid; gap: 8px; margin: 14px 0; max-height: 300px; overflow: auto; }
 .dialog-row { display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--line); min-height: 43px; font-size: 13px; }
 .dialog-row > span, .dialog-row > label { flex: 1; overflow-wrap: anywhere; }

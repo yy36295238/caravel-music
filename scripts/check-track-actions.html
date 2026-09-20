@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="color-scheme" content="dark light"><link rel="icon" href="data:,"><title>歌曲操作自查</title></head>
+<body><div id="app"></div><output id="check-result" style="position:fixed;bottom:0;left:0;z-index:20;background:#fff;color:#111">正在自查…</output>
+<script type="module">
+// npm run dev 后打开此页；模拟 IPC，无权访问真实文件，物理删除由 Rust 临时曲库自查覆盖。
+import { mockIPC } from '@tauri-apps/api/mocks';
+const tracks = ['不喜欢样本', '删除样本', '保留样本'].map((title, index) => ({
+  id: `00000000-0000-4000-8000-00000000000${index}`, directoryId: 'music', title, filename: `${title}.mp3`,
+  artist: '测试歌手', album: '测试专辑', available: true, favorite: false, tags: [], art: index, seconds: 180
+}));
+const [disliked, deleted, retained] = tracks.map(track => track.id);
+const settings = { current: disliked, position: 10, queue: [disliked, deleted, retained], lyricOffsets: { [disliked]: 0.2 } };
+let calls = 0, failDelete = true;
+mockIPC((command, args) => {
+  if (command === 'load_library') return { tracks, directories: [{ id: 'music', path: '/测试音乐', count: tracks.length, status: 'ready' }], tags: ['安静'], settings };
+  if (command === 'load_lyrics') return { text: '', source: '' };
+  if (command === 'plugin:app|version') return '0.1.1';
+  if (command === 'plugin:updater|check') return null;
+  if (command === 'save_settings') Object.assign(settings, args.settings);
+  if (command === 'refresh_library') return { finished: true, processed: tracks.length, removed: 0, failed: 0, errors: [] };
+  if (command === 'delete_track' || command === 'dislike_track') {
+    calls++;
+    if (command === 'delete_track' && failDelete) { failDelete = false; throw new Error('删除文件失败：无访问权限'); }
+    tracks.splice(tracks.findIndex(track => track.id === args.id), 1);
+  }
+}, { shouldMockEvents: true });
+const $ = selector => document.querySelector(selector);
+const frame = () => new Promise(requestAnimationFrame);
+const assert = (condition, message) => { if (!condition) throw new Error(message); };
+const click = async selector => { $(selector).click(); await frame(); };
+try {
+  await import('../src/main.js');
+  await frame();
+  await click('#player-track [data-action="track-more"]');
+  assert($('#modal').open && $('[data-action="dislike-track"]') && $('[data-action="delete-track"]'), '播放器更多应包含不喜欢和删除');
+  await click('[data-action="assign"]');
+  assert($('#assign-form'), '原有标签入口应继续可用');
+  await click('[data-action="close"]');
+  await click(`#tracks [data-action="track-more"][data-id="${disliked}"]`);
+  await click('[data-action="delete-track"]');
+  assert($('#dialog-title').textContent === '确认删除歌曲' && $('#modal').textContent.includes('不喜欢样本.mp3'), '确认弹窗应明确目标文件');
+  assert(calls === 0, '显示确认弹窗不能直接删除');
+  await click('#modal [data-action="track-more"]');
+  assert(calls === 0 && tracks.length === 3, '取消不能执行文件操作');
+  await click('[data-action="dislike-track"]');
+  assert(!$('#modal').open && $('#all-count').textContent === '2', '不喜欢应立即从曲库隐藏');
+  assert(!settings.queue.includes(disliked) && settings.current === null, '不喜欢应清理当前歌曲和播放队列');
+  assert(!settings.lyricOffsets[disliked], '不喜欢应清理内存歌词偏移');
+  await click('[data-action="import"]');
+  await click('[data-action="refresh"]');
+  await click('[data-action="close"]');
+  assert(!$(`#tracks [data-track="${disliked}"]`), '刷新后不喜欢歌曲不应返回');
+  await click(`#tracks [data-action="track-more"][data-id="${deleted}"]`);
+  await click('[data-action="delete-track"]');
+  await click('[data-action="confirm-delete-track"]');
+  assert($('#modal').open && $('#track-action-status').textContent.includes('无访问权限'), '删除失败应在弹窗显示原因');
+  assert(tracks.length === 2, '删除失败应保留歌曲');
+  await click('[data-action="confirm-delete-track"]');
+  assert(!$('#modal').open && $('#all-count').textContent === '1', '删除成功应关闭弹窗并更新曲库');
+  assert(settings.queue.length === 1 && settings.queue[0] === retained, '删除应清理队列且保留其它歌曲');
+  assert(calls === 3, '只有不喜欢、删除失败和重试应调用文件操作');
+  $('#check-result').textContent = 'PASS：更多双入口、标签保留、删除确认与取消、不喜欢、刷新、当前歌曲及队列清理、删除失败与重试';
+} catch (error) {
+  $('#check-result').textContent = `FAIL：${error.message}`;
+  console.error('歌曲操作自查失败', error);
+}
+</script></body></html>

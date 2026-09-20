@@ -57,7 +57,90 @@ pub fn run() -> Result<(), String> {
     crate::tray::self_check();
     let root = std::env::temp_dir().join(format!("liusheng-check-{}", uuid::Uuid::new_v4()));
     fs::create_dir_all(root.join("音乐/子目录")).map_err(|e| e.to_string())?;
-    let result = check(&root);
+    let result = check(&root).and_then(|_| {
+        // 单曲操作仅使用隔离样本；同时覆盖旧库升级和文件删除失败后的事务回滚。
+        let music = root.join("单曲操作");
+        fs::create_dir_all(&music).map_err(|e| e.to_string())?;
+        for name in ["不喜欢", "删除", "保留"] {
+            fs::write(music.join(format!("{name}.mp3")), vec![1u8; 2048]).map_err(|e| e.to_string())?;
+        }
+        let db_path = root.join("actions.sqlite");
+        let library = Library::open(&db_path)?;
+        let directory_id = library.add_directory(&music)?;
+        scanner::scan(&library, None, |_| {})?;
+        let data = library.load()?;
+        let disliked = &data.tracks.iter().find(|t| t.title == "不喜欢").unwrap().id;
+        let deleted = &data.tracks.iter().find(|t| t.title == "删除").unwrap().id;
+        let retained = &data.tracks.iter().find(|t| t.title == "保留").unwrap().id;
+        library.favorite(retained, true)?;
+        drop(library);
+        let conn = rusqlite::Connection::open(&db_path).map_err(|e| e.to_string())?;
+        conn.execute_batch("ALTER TABLE tracks DROP COLUMN disliked; PRAGMA user_version=1;").map_err(|e| e.to_string())?;
+        let library = Library::open(&db_path)?;
+        assert!(db_path.with_extension("before-v2.sqlite").exists());
+        assert!(library.load()?.tracks.iter().find(|t| t.id == *retained).unwrap().favorite);
+        library.category("tags", "create", "删除关联", None)?;
+        library.assign(Assignment { ids: vec![deleted.clone()], tags: vec!["删除关联".into()], operation: "replace".into() })?;
+        let settings = serde_json::json!({"skin":"dark","volume":0.5,"mode":"order",
+            "current":deleted,"position":10,"queue":[retained,disliked,deleted,retained],
+            "lyricOffsets":{deleted:0.4,disliked:0.2,retained:-0.2}});
+        library.save_settings(serde_json::from_value(settings.clone()).map_err(|e| e.to_string())?)?;
+        library.dislike(disliked)?;
+        assert!(music.join("不喜欢.mp3").exists());
+        assert!(library.media_path(disliked).is_err());
+        library.remove_directory(&directory_id)?;
+        assert_eq!(library.add_directory(&music)?, directory_id);
+        scanner::scan(&library, Some(&directory_id), |_| {})?;
+        scanner::scan(&library, None, |_| {})?;
+        let reopened = Library::open(&db_path)?.load()?;
+        assert_eq!(reopened.tracks.len(), 2);
+        assert_eq!(reopened.directories[0].count, 2);
+        assert!(!reopened.tracks.iter().any(|t| t.id == *disliked));
+        assert_eq!(reopened.settings["queue"], serde_json::json!([retained,deleted,retained]));
+        assert!(library.delete_track("../../outside.mp3").is_err());
+        library.scanning.store(true, std::sync::atomic::Ordering::SeqCst);
+        assert!(library.delete_track(deleted).is_err());
+        library.scanning.store(false, std::sync::atomic::Ordering::SeqCst);
+        let path = music.join("删除.mp3");
+        let moved = music.join("删除.backup");
+        fs::rename(&path, &moved).map_err(|e| e.to_string())?;
+        fs::create_dir(&path).map_err(|e| e.to_string())?;
+        assert!(library.delete_track(deleted).is_err());
+        assert_eq!(library.load()?.tracks.len(), 2);
+        assert_eq!(library.load()?.tracks.iter().find(|t| t.id == *deleted).unwrap().tags, vec!["删除关联"]);
+        assert_eq!(library.load()?.settings["current"], *deleted);
+        fs::remove_dir(&path).map_err(|e| e.to_string())?;
+        #[cfg(unix)]
+        {
+            let outside = root.join("outside.mp3");
+            fs::write(&outside, "不能删除目录外文件").map_err(|e| e.to_string())?;
+            std::os::unix::fs::symlink(&outside, &path).map_err(|e| e.to_string())?;
+            assert!(library.delete_track(deleted).is_err());
+            assert!(outside.exists());
+            fs::remove_file(&path).map_err(|e| e.to_string())?;
+        }
+        fs::rename(&moved, &path).map_err(|e| e.to_string())?;
+        let lrc = path.with_extension("lrc");
+        fs::write(&lrc, "保留独立歌词文件").map_err(|e| e.to_string())?;
+        library.delete_track(deleted)?;
+        assert!(!path.exists());
+        assert!(lrc.exists() && music.join("保留.mp3").exists());
+        // 延迟到达的播放快照不得把不喜欢或已删除歌曲带回队列。
+        library.save_settings(serde_json::from_value(settings).map_err(|e| e.to_string())?)?;
+        scanner::scan(&library, None, |_| {})?;
+        let reopened = Library::open(&db_path)?.load()?;
+        assert_eq!(reopened.tracks.len(), 1);
+        assert_eq!(reopened.tracks[0].id, *retained);
+        assert!(reopened.tracks[0].favorite);
+        assert_eq!(reopened.settings["queue"], serde_json::json!([retained,retained]));
+        assert!(reopened.settings["current"].is_null());
+        assert_eq!(reopened.settings["position"], 0);
+        assert_eq!(reopened.settings["lyricOffsets"], serde_json::json!({retained:-0.2}));
+        let associations: i64 = conn.query_row("SELECT COUNT(*) FROM track_categories WHERE track_id=?1", [deleted], |row| row.get(0)).map_err(|e| e.to_string())?;
+        assert_eq!(associations, 0);
+        println!("PASS: 旧库升级、不喜欢持久化与重新导入、物理删除、扫描互斥、越界拒绝、失败回滚及旧队列清理");
+        Ok(())
+    });
     let _ = fs::remove_dir_all(&root);
     result
 }

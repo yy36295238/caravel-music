@@ -35,7 +35,7 @@ impl Library {
         let version: i64 = conn
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .map_err(error)?;
-        if version > 1 {
+        if version > 2 {
             return Err("数据库版本高于当前应用，请使用更新版本的留声".into());
         }
         if version == 0 {
@@ -65,6 +65,19 @@ impl Library {
             tx.commit().map_err(error)?;
             log::info!("本地数据库初始化完成 schema=1");
         }
+        if version < 2 {
+            // 升级前备份收藏及播放状态；不喜欢标记不随文件元数据刷新而重置。
+            conn.backup("main", path.with_extension("before-v2.sqlite"), None)
+                .map_err(error)?;
+            let tx = conn.transaction().map_err(error)?;
+            tx.execute_batch(
+                "ALTER TABLE tracks ADD COLUMN disliked INTEGER NOT NULL DEFAULT 0;
+                PRAGMA user_version=2;",
+            )
+            .map_err(error)?;
+            tx.commit().map_err(error)?;
+            log::info!("本地数据库升级完成 schema=2");
+        }
         Ok(Self {
             connection: Mutex::new(conn),
             scanning: AtomicBool::new(false),
@@ -76,13 +89,13 @@ impl Library {
             .lock()
             .map_err(|_| "数据库锁异常，请重启应用".into())
     }
-    /// 仅加载启用来源的歌曲；移除来源保留收藏与标签供重新添加恢复，但不进入曲库。
+    /// 仅加载启用来源且未标记不喜欢的歌曲；隐藏记录仍保留用户偏好。
     /// 旧分组保留在数据库中，不再进入界面或筛选。
     pub fn load(&self) -> Result<LibraryData> {
         let conn = self.conn()?;
         let mut statement = conn.prepare("SELECT t.id,t.directory_id,t.filename,t.title,t.artist,t.album,t.seconds,
             t.available AND d.active AND d.status<>'offline',t.favorite,t.metadata_error FROM tracks t JOIN directories d ON d.id=t.directory_id
-            WHERE d.active=1 ORDER BY t.title COLLATE NOCASE,t.id").map_err(error)?;
+            WHERE d.active=1 AND t.disliked=0 ORDER BY t.title COLLATE NOCASE,t.id").map_err(error)?;
         let mut tracks: Vec<Track> = statement
             .query_map([], |r| {
                 let id: String = r.get(0)?;
@@ -121,7 +134,7 @@ impl Library {
                 tracks[i].tags.push(name);
             }
         }
-        let mut dirs = conn.prepare("SELECT d.id,d.path,d.status,COUNT(t.id) FROM directories d LEFT JOIN tracks t ON t.directory_id=d.id WHERE d.active=1 GROUP BY d.id ORDER BY d.path").map_err(error)?;
+        let mut dirs = conn.prepare("SELECT d.id,d.path,d.status,COUNT(t.id) FROM directories d LEFT JOIN tracks t ON t.directory_id=d.id AND t.disliked=0 WHERE d.active=1 GROUP BY d.id ORDER BY d.path").map_err(error)?;
         let directories = dirs
             .query_map([], |r| {
                 Ok(Directory {
@@ -286,10 +299,7 @@ impl Library {
                 )
                 .map_err(error)?;
             if removed > 0 {
-                // 在同一事务中清理持久化引用，重启后不能恢复已删除歌曲。
-                tx.execute("UPDATE app_state SET value=(SELECT json_group_array(j.value ORDER BY CAST(j.key AS INTEGER)) FROM json_each(app_state.value) j JOIN tracks t ON t.id=j.value) WHERE key='queue'", []).map_err(error)?;
-                tx.execute("UPDATE app_state SET value=(SELECT json_group_object(j.key,j.value) FROM json_each(app_state.value) j JOIN tracks t ON t.id=j.key) WHERE key='lyric_offsets'", []).map_err(error)?;
-                tx.execute("UPDATE app_state SET value=json_set(value,'$.current',NULL,'$.position',0) WHERE key='playback' AND json_extract(value,'$.current') IS NOT NULL AND NOT EXISTS(SELECT 1 FROM tracks WHERE id=json_extract(app_state.value,'$.current'))", []).map_err(error)?;
+                prune_playback(&tx)?;
             }
         }
         tx.execute(
@@ -351,6 +361,42 @@ impl Library {
         }
         log::info!("更新收藏 track={id} favorite={value}");
         Ok(())
+    }
+    /// 仅隐藏曲库记录，保留原文件；刷新时按路径更新元数据不会清除此标记。
+    pub fn dislike(&self, id: &str) -> Result<()> {
+        let mut conn = self.conn()?;
+        let tx = conn.transaction().map_err(error)?;
+        if tx.execute("UPDATE tracks SET disliked=1 WHERE id=?1 AND directory_id IN (SELECT id FROM directories WHERE active=1)", [id]).map_err(error)? == 0 {
+            return Err("歌曲不存在或来源已移除".into());
+        }
+        prune_playback(&tx)?;
+        tx.commit().map_err(error)?;
+        log::info!("标记不喜欢 track={id}");
+        Ok(())
+    }
+    /// 确认删除后仅移除索引对应的 MP3；复用扫描互斥，避免在删除后被旧批次重新收录。
+    pub fn delete_track(&self, id: &str) -> Result<()> {
+        if self.scanning.swap(true, Ordering::SeqCst) {
+            return Err("请等待当前扫描或删除完成后再删除歌曲".into());
+        }
+        let result = (|| {
+            let path = self.media_path(id)?;
+            let mut conn = self.conn()?;
+            let tx = conn.transaction().map_err(error)?;
+            tx.execute("DELETE FROM track_categories WHERE track_id=?1", [id])
+                .map_err(error)?;
+            tx.execute("DELETE FROM tracks WHERE id=?1", [id])
+                .map_err(error)?;
+            prune_playback(&tx)?;
+            // 先完成可回滚的数据库写入；文件删除失败则自动回滚，保留曲库记录供重试。
+            std::fs::remove_file(&path).map_err(|e| format!("删除文件失败：{e}"))?;
+            tx.commit()
+                .map_err(|e| format!("文件已删除，但曲库保存失败，请刷新曲库：{e}"))?;
+            log::info!("物理删除歌曲 track={id}");
+            Ok(())
+        })();
+        self.scanning.store(false, Ordering::SeqCst);
+        result.inspect_err(|e| log::error!("删除歌曲失败 track={id} reason={e}"))
     }
     /// 所有分类写入通过参数绑定，更新与删除由外键级联保持关联一致。
     /// 标签管理沿用旧表结构，停用分组写入但不迁移或删除历史数据。
@@ -470,6 +516,8 @@ impl Library {
         if let Some(queue) = s.queue {
             tx.execute("INSERT INTO app_state VALUES('queue',?1) ON CONFLICT(key) DO UPDATE SET value=excluded.value",[serde_json::to_string(&queue).map_err(error)?]).map_err(error)?;
         }
+        // 页面旧快照可能晚于隐藏或删除完成，写入时再次清理，防止失效歌曲回到队列。
+        prune_playback(&tx)?;
         tx.commit().map_err(error)?;
         if let Some(offsets) = s.lyric_offsets {
             log::info!("保存歌词校准 count={}", offsets.len());
@@ -481,7 +529,7 @@ impl Library {
         if Uuid::parse_str(id).is_err() {
             return Err("歌曲 ID 无效".into());
         }
-        let (path,root): (String,String)=self.conn()?.query_row("SELECT t.path,d.path FROM tracks t JOIN directories d ON t.directory_id=d.id WHERE t.id=?1 AND d.active=1 AND t.available=1",[id],|r|Ok((r.get(0)?,r.get(1)?))).map_err(|_| "歌曲或目录不可用".to_string())?;
+        let (path,root): (String,String)=self.conn()?.query_row("SELECT t.path,d.path FROM tracks t JOIN directories d ON t.directory_id=d.id WHERE t.id=?1 AND d.active=1 AND t.available=1 AND t.disliked=0",[id],|r|Ok((r.get(0)?,r.get(1)?))).map_err(|_| "歌曲或目录不可用".to_string())?;
         let real = Path::new(&path)
             .canonicalize()
             .map_err(|_| "文件不存在或无权限".to_string())?;
@@ -495,6 +543,13 @@ impl Library {
         }
         Ok(real)
     }
+}
+/// 与曲库可见范围一致；扫描清理、单曲操作及旧快照保存共用同一事务内的引用清理。
+fn prune_playback(conn: &Connection) -> Result<()> {
+    conn.execute("UPDATE app_state SET value=(SELECT json_group_array(j.value ORDER BY CAST(j.key AS INTEGER)) FROM json_each(app_state.value) j JOIN tracks t ON t.id=j.value JOIN directories d ON d.id=t.directory_id WHERE t.disliked=0 AND d.active=1) WHERE key='queue'", []).map_err(error)?;
+    conn.execute("UPDATE app_state SET value=(SELECT json_group_object(j.key,j.value) FROM json_each(app_state.value) j JOIN tracks t ON t.id=j.key JOIN directories d ON d.id=t.directory_id WHERE t.disliked=0 AND d.active=1) WHERE key='lyric_offsets'", []).map_err(error)?;
+    conn.execute("UPDATE app_state SET value=json_set(value,'$.current',NULL,'$.position',0) WHERE key='playback' AND json_extract(value,'$.current') IS NOT NULL AND NOT EXISTS(SELECT 1 FROM tracks t JOIN directories d ON d.id=t.directory_id WHERE t.id=json_extract(app_state.value,'$.current') AND t.disliked=0 AND d.active=1)", []).map_err(error)?;
+    Ok(())
 }
 fn validate_name(name: &str) -> Result<()> {
     if name.trim().is_empty() || name.chars().count() > 30 || name.chars().any(char::is_control) {
