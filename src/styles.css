@@ -95,7 +95,8 @@ button svg { pointer-events: none; }
 .btn.primary { background: var(--accent); color: var(--button-text); border-color: var(--accent); }
 .btn.primary:hover { filter: brightness(1.08); }
 .filters { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; padding: 0 0 17px; }
-.filters > span { color: var(--muted); font-size: 11px; margin-right: 5px; }
+.filters > span { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 11px; margin-right: 5px; }
+.filters > span svg { width: 14px; height: 14px; }
 .folder-filters { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding-bottom: 16px; }
 .folder-filter-label { display: inline-flex; align-items: center; gap: 6px; margin-right: 4px; color: var(--muted); font-size: 11px; }
 .folder-filter-label svg { width: 14px; height: 14px; }
