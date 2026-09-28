@@ -5,6 +5,7 @@ import { initUpdater, renderUpdater, checkForUpdates, installUpdate } from './up
 import { matching, collections, albumKey, albumName, artistName, musicFolders } from './library.js';
 import { parseLyrics, activeLyricIndex, lyricScrollTop, lyricSeekTime } from './lyrics.js';
 import { playbackSnapshot } from './menu-state.js';
+import { coverImage, refreshCovers, showTrackInfo } from './track-info.js';
 
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const duration = seconds => `${Math.floor((Number(seconds) || 0) / 60)}:${String(Math.floor((Number(seconds) || 0) % 60)).padStart(2, '0')}`;
@@ -118,6 +119,7 @@ function reportError(context, error) {
 // 后台索引刷新只替换曲库，不能覆盖正在播放时修改的音量、进度和皮肤。
 async function reloadLibrary() {
   const data = await invoke('load_library');
+  refreshCovers();
   Object.assign(store, { tracks: data.tracks, directories: data.directories, tags: data.tags });
   folderEntries = musicFolders(store.tracks, store.directories);
   if (filter.directoryId && !folderEntries.some(item => item.directoryId === filter.directoryId)) {
@@ -267,15 +269,17 @@ function render() {
   $('#collections').hidden = !browseKind;
   $('#filters').hidden = !!browseKind;
   $('[data-action="play-all"]').hidden = !!browseKind;
-  $('#collections').innerHTML = entries.slice((page - 1) * pageSize, page * pageSize).map(item => `<button class="collection-card" data-action="collection" data-kind="${browseKind}" data-key="${esc(item.key)}" data-name="${esc(item.title)}"><span class="collection-art art-${item.art} ${browseKind === 'artists' ? 'artist-art' : ''}" aria-hidden="true">${browseKind === 'artists' ? esc(item.title.slice(0, 1)) : icon('disc')}</span><span class="collection-copy"><strong>${esc(item.title)}</strong><small>${browseKind === 'albums' ? esc(item.artist) : `${item.albums.size} 张专辑`}</small><small>${item.count} 首歌曲</small></span>${icon('arrow')}</button>`).join('');
+  $('#collections').innerHTML = entries.slice((page - 1) * pageSize, page * pageSize).map(item => `<button class="collection-card" data-action="collection" data-kind="${browseKind}" data-key="${esc(item.key)}" data-name="${esc(item.title)}"><span class="collection-art art-${item.art} ${browseKind === 'artists' ? 'artist-art' : ''}" aria-hidden="true">${browseKind === 'artists' ? esc(item.title.slice(0, 1)) : `${icon('disc')}${coverImage(item.coverTrack)}`}</span><span class="collection-copy"><strong>${esc(item.title)}</strong><small>${browseKind === 'albums' ? esc(item.artist) : `${item.albums.size} 张专辑`}</small><small>${item.count} 首歌曲</small></span>${icon('arrow')}</button>`).join('');
   const localCount = store.tracks.filter(playable).length;
   $('#library-count').textContent = `${rows.length} 首歌曲 · ${localCount ? `已导入 ${localCount} 首本地音乐` : '选择音乐文件夹开始收藏'}`;
   if (browseKind) $('#library-count').textContent = `${entries.length} ${browseKind === 'albums' ? '张专辑' : '位歌手'} · 根据本地歌曲信息整理`;
   $('#folder-filters').hidden = !!browseKind || !folderEntries.length;
-  $('#folder-filters').innerHTML = `<span class="folder-filter-label">${icon('folder')}文件夹</span><button class="folder-chip ${filter.directoryId ? '' : 'active'}" data-action="folder" data-id="" aria-pressed="${!filter.directoryId}">全部</button>${folderEntries.map(item => `<button class="folder-chip ${item.directoryId === filter.directoryId ? 'active' : ''}" data-action="folder" data-id="${esc(item.directoryId)}" aria-pressed="${item.directoryId === filter.directoryId}" title="${esc(item.path)}"><span>${esc(item.name)}</span><small>${item.count}</small></button>`).join('')}`;
+  const folderScrollLeft = $('#folder-scroll')?.scrollLeft || 0;
+  $('#folder-filters').innerHTML = `<span class="folder-filter-label">${icon('folder')}文件夹</span><button class="folder-chip ${filter.directoryId ? '' : 'active'}" data-action="folder" data-id="" aria-pressed="${!filter.directoryId}">全部</button><div class="folder-scroll" id="folder-scroll" tabindex="0" aria-label="音乐文件夹，可左右滚动">${folderEntries.map(item => `<button class="folder-chip ${item.directoryId === filter.directoryId ? 'active' : ''}" data-action="folder" data-id="${esc(item.directoryId)}" aria-pressed="${item.directoryId === filter.directoryId}" title="${esc(item.path)}"><span>${esc(item.name)}</span><small>${item.count}</small></button>`).join('')}</div>`;
+  $('#folder-scroll').scrollLeft = folderScrollLeft;
   $('#filters').innerHTML = `<span>${icon('tag')}标签</span><button class="chip ${filter.tags.length ? '' : 'active'}" data-action="all-tags">全部</button>${store.tags.map(tag => `<button class="chip ${filter.tags.includes(tag) ? 'active' : ''}" data-action="tag" data-name="${esc(tag)}" aria-pressed="${filter.tags.includes(tag)}">${esc(tag)}</button>`).join('')}<button class="text-btn" data-action="settings" data-panel="settings-organize">标签设置</button>`;
   const visible = browseKind ? [] : rows.slice((page - 1) * pageSize, page * pageSize);
-  $('#tracks').innerHTML = visible.map(t => `<tr class="${t.id === currentId ? 'current' : ''}" data-track="${esc(t.id)}"><td><input type="checkbox" data-select="${esc(t.id)}" ${selected.has(t.id) ? 'checked' : ''} aria-label="选择 ${esc(t.title)}"></td><td><div class="song-cell"><span class="cover art-${t.art}"><button class="row-play" data-action="play" data-id="${esc(t.id)}" aria-label="播放 ${esc(t.title)}">${icon(t.id === currentId && !audio.paused ? 'pause' : 'play')}</button>${playbackIndicator(t.id)}</span><button class="song-name" data-action="play" data-id="${esc(t.id)}" aria-label="点播 ${esc(t.title)}"><span class="song-title">${esc(t.title)}</span><span class="song-meta">${playable(t) ? (t.metadataError ? '标签读取异常' : '本地 MP3') : '文件缺失或目录离线'}</span></button></div></td><td class="cell-muted artist-col"><button class="metadata-link" data-action="collection" data-kind="artists" data-key="${esc(artistName(t))}" data-name="${esc(artistName(t))}">${esc(artistName(t))}</button></td><td class="cell-muted album-col"><button class="metadata-link" data-action="collection" data-kind="albums" data-key="${esc(albumKey(t))}" data-name="${esc(albumName(t))}">${esc(albumName(t))}</button></td><td class="tag-col">${t.tags.slice(0, 2).map(tag => `<span class="row-tag">${esc(tag)}</span>`).join('') || '<span class="row-tag">—</span>'}</td><td class="cell-muted">${t.seconds ? duration(t.seconds) : '--:--'}</td><td>${favoriteButton(t, ` ${t.title}`)}</td><td><button class="icon-btn" data-action="track-more" data-id="${esc(t.id)}" aria-label="${esc(t.title)} 更多" title="更多">${icon('dots')}</button></td></tr>`).join('');
+  $('#tracks').innerHTML = visible.map(t => `<tr class="${t.id === currentId ? 'current' : ''}" data-track="${esc(t.id)}"><td><input type="checkbox" data-select="${esc(t.id)}" ${selected.has(t.id) ? 'checked' : ''} aria-label="选择 ${esc(t.title)}"></td><td><div class="song-cell"><span class="cover art-${t.art}">${coverImage(t)}<button class="row-play" data-action="play" data-id="${esc(t.id)}" aria-label="播放 ${esc(t.title)}">${icon(t.id === currentId && !audio.paused ? 'pause' : 'play')}</button>${playbackIndicator(t.id)}</span><button class="song-name" data-action="play" data-id="${esc(t.id)}" aria-label="点播 ${esc(t.title)}"><span class="song-title">${esc(t.title)}</span><span class="song-meta">${playable(t) ? (t.metadataError ? '标签读取异常' : '本地 MP3') : '文件缺失或目录离线'}</span></button></div></td><td class="cell-muted artist-col"><button class="metadata-link" data-action="collection" data-kind="artists" data-key="${esc(artistName(t))}" data-name="${esc(artistName(t))}">${esc(artistName(t))}</button></td><td class="cell-muted album-col"><button class="metadata-link" data-action="collection" data-kind="albums" data-key="${esc(albumKey(t))}" data-name="${esc(albumName(t))}">${esc(albumName(t))}</button></td><td class="tag-col">${t.tags.slice(0, 2).map(tag => `<span class="row-tag">${esc(tag)}</span>`).join('') || '<span class="row-tag">—</span>'}</td><td class="cell-muted">${t.seconds ? duration(t.seconds) : '--:--'}</td><td>${favoriteButton(t, ` ${t.title}`)}</td><td><button class="icon-btn" data-action="track-more" data-id="${esc(t.id)}" aria-label="${esc(t.title)} 更多" title="更多">${icon('dots')}</button></td></tr>`).join('');
   $('#empty').hidden = count > 0;
   $('#empty').innerHTML = `${icon('search')}没有找到${browseKind === 'albums' ? '专辑' : browseKind === 'artists' ? '歌手' : '歌曲'}<br><button class="text-btn" data-action="clear-filters">清空筛选</button>`;
   $('#table-end').hidden = !!browseKind;
@@ -302,8 +306,8 @@ function renderPlayer() {
     $('#play-toggle').innerHTML = icon('play');
     renderPlaybackIndicators(); return;
   }
-  $('#player-track').innerHTML = `<span class="cover art-${track.art}">${playbackIndicator(track.id)}</span><div class="track-label"><strong>${esc(track.title)}</strong><small>${esc(track.artist)}</small></div>${favoriteButton(track, '当前歌曲')}<button class="icon-btn" data-action="track-more" data-id="${esc(track.id)}" aria-label="当前歌曲更多" title="更多">${icon('dots')}</button>`;
-  $('#now-info').innerHTML = `<div class="now-info"><div><h3>${esc(track.title)}</h3><p>${esc(track.artist)}</p></div>${favoriteButton(track, '详情歌曲')}</div>`;
+  $('#player-track').innerHTML = `<span class="cover art-${track.art}">${coverImage(track)}${playbackIndicator(track.id)}</span><div class="track-label"><strong>${esc(track.title)}</strong><small>${esc(track.artist)}</small></div>${favoriteButton(track, '当前歌曲')}<button class="icon-btn" data-action="track-more" data-id="${esc(track.id)}" aria-label="当前歌曲更多" title="更多">${icon('dots')}</button>`;
+  $('#now-info').innerHTML = `<div class="now-info"><span class="cover art-${track.art}">${coverImage(track)}</span><div><h3>${esc(track.title)}</h3><p>${esc(track.artist)}</p></div>${favoriteButton(track, '详情歌曲')}</div>`;
   const rowButton = [...document.querySelectorAll('.row-play')].find(button => button.dataset.id === track.id);
   if (rowButton) {
     rowButton.innerHTML = icon(audio.paused ? 'play' : 'pause');
@@ -563,7 +567,7 @@ function showTrackActions(id, confirmDelete = false) {
   const source = store.directories.find(dir => dir.id === track.directoryId)?.path || '';
   const content = confirmDelete
     ? `<p class="dialog-desc">将永久删除此 MP3 文件，同时移除曲库记录。此操作无法撤销。</p><div class="dialog-footer"><button class="btn" data-action="track-more" data-id="${esc(id)}">取消</button><button class="btn danger" data-action="confirm-delete-track" data-id="${esc(id)}" ${scanning ? 'disabled' : ''}>永久删除文件</button></div>`
-    : `<div class="dialog-list"><button class="btn" data-action="assign" data-id="${esc(id)}">${icon('tag')}设置标签</button><button class="btn" data-action="dislike-track" data-id="${esc(id)}">不喜欢</button><button class="btn danger" data-action="delete-track" data-id="${esc(id)}" ${scanning ? 'disabled' : ''}>${icon('trash')}删除</button></div><p class="note">不喜欢：保留文件，以后不再出现在曲库和播放队列中。${scanning ? '扫描期间暂时无法删除文件。' : ''}</p>`;
+    : `<div class="dialog-list"><button class="btn" data-action="track-info" data-id="${esc(id)}">${icon('disc')}歌曲信息</button><button class="btn" data-action="assign" data-id="${esc(id)}">${icon('tag')}设置标签</button><button class="btn" data-action="dislike-track" data-id="${esc(id)}">不喜欢</button><button class="btn danger" data-action="delete-track" data-id="${esc(id)}" ${scanning ? 'disabled' : ''}>${icon('trash')}删除</button></div><p class="note">不喜欢：保留文件，以后不再出现在曲库和播放队列中。${scanning ? '扫描期间暂时无法删除文件。' : ''}</p>`;
   openModal(confirmDelete ? '确认删除歌曲' : track.title, `<p class="track-file">${esc(track.filename)}<br><span>${esc(source)}</span></p>${content}<p id="track-action-status" class="note" role="status"></p>`);
 }
 // 防止重复点击或重新打开弹窗时，对同一文件重复执行不可逆操作。
@@ -687,6 +691,7 @@ async function handleAction(button) {
     return;
   }
   if (action === 'manage') { showManage(); return; }
+  if (action === 'track-info') { await showTrackInfo(store.tracks.find(t => t.id === id), openModal); return; }
   if (action === 'track-more' || action === 'delete-track') { showTrackActions(id, action === 'delete-track'); return; }
   if (action === 'dislike-track' || action === 'confirm-delete-track') { await removeTrackFromLibrary(id, action === 'confirm-delete-track'); return; }
   if (action === 'assign' || action === 'assign-selected') { showAssign(action === 'assign-selected' ? [...selected] : [id]); return; }
@@ -738,6 +743,15 @@ async function handleAction(button) {
   render();
 }
 function bindEvents() {
+  // 触控板保留原生横向手势；普通鼠标滚轮在目录区域转为横向，到边界后继续滚动页面。
+  $('#folder-filters').addEventListener('wheel', event => {
+    const strip = event.target.closest('.folder-scroll');
+    if (!strip || event.ctrlKey || event.shiftKey || event.deltaX || !event.deltaY) return;
+    const delta = event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? strip.clientWidth : 1);
+    const before = strip.scrollLeft;
+    strip.scrollLeft += delta;
+    if (strip.scrollLeft !== before) event.preventDefault();
+  }, { passive: false });
   document.addEventListener('click', event => {
     if (!event.target.closest('.lyrics-options')) $('.lyrics-options').open = false;
     const button = event.target.closest('[data-action]');

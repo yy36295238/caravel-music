@@ -36,6 +36,9 @@ pub fn byte_range(value: &str, length: u64) -> Option<(u64, u64)> {
 /// 协议路径只接受歌曲 ID；真实路径与目录授权始终在 Rust 端重新确认。
 pub fn respond(library: &Library, request: Request<Vec<u8>>) -> Response<Vec<u8>> {
     let id = request.uri().path().trim_start_matches('/');
+    if let Some(track_id) = id.strip_prefix("cover/") {
+        return crate::track_info::cover(library, track_id, &request);
+    }
     let result = (|| {
         if !["GET", "HEAD"].contains(&request.method().as_str()) {
             return Err((405, "不支持的媒体请求".to_string()));

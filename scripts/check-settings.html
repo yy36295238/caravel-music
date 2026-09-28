@@ -4,7 +4,8 @@
 <body><div id="app"></div><output id="check-result" style="position:fixed;bottom:0;left:0;z-index:20;background:#fff;color:#111">正在自查…</output>
 <script type="module">
 // npm run dev 后打开 /scripts/check-settings.html；只用模拟 IPC，不读取或修改个人曲库。
-import { mockIPC } from '@tauri-apps/api/mocks';
+import { mockIPC, mockConvertFileSrc } from '@tauri-apps/api/mocks';
+mockConvertFileSrc('windows');
 const settings = {};
 mockIPC((command, args) => {
   if (command === 'load_library') return { tracks: [], directories: [], tags: ['安静'], settings };

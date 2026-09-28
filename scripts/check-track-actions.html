@@ -4,7 +4,8 @@
 <body><div id="app"></div><output id="check-result" style="position:fixed;bottom:0;left:0;z-index:20;background:#fff;color:#111">正在自查…</output>
 <script type="module">
 // npm run dev 后打开此页；模拟 IPC，无权访问真实文件，物理删除由 Rust 临时曲库自查覆盖。
-import { mockIPC } from '@tauri-apps/api/mocks';
+import { mockIPC, mockConvertFileSrc } from '@tauri-apps/api/mocks';
+mockConvertFileSrc('windows');
 const tracks = ['不喜欢样本', '删除样本', '保留样本'].map((title, index) => ({
   id: `00000000-0000-4000-8000-00000000000${index}`, directoryId: 'music', title, filename: `${title}.mp3`,
   artist: '测试歌手', album: '测试专辑', available: true, favorite: false, tags: [], art: index, seconds: 180

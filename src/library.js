@@ -34,8 +34,9 @@ export function collections(tracks, kind, query = '') {
   for (const track of tracks) {
     const artist = artistName(track), album = albumName(track);
     const key = kind === 'artists' ? artist : albumKey(track);
-    if (!items.has(key)) items.set(key, { key, title: kind === 'artists' ? artist : album, artist, count: 0, albums: new Set(), art: track.art });
+    if (!items.has(key)) items.set(key, { key, title: kind === 'artists' ? artist : album, artist, count: 0, albums: new Set(), art: track.art, coverTrack: track });
     const item = items.get(key);
+    if (!item.coverTrack.available && track.available) item.coverTrack = track;
     item.count++; item.albums.add(album);
   }
   const term = query.trim().toLocaleLowerCase();

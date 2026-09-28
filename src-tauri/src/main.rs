@@ -6,6 +6,7 @@ mod media;
 mod models;
 mod scanner;
 mod self_check;
+mod track_info;
 mod tray;
 #[cfg(target_os = "macos")]
 mod tray_panel;
@@ -61,6 +62,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             commands::load_library,
             commands::load_lyrics,
+            commands::load_track_info,
             commands::add_directory,
             commands::open_directory,
             commands::refresh_library,

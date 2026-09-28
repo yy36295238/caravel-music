@@ -111,6 +111,18 @@ pub async fn load_lyrics(app: AppHandle, id: String) -> Result<crate::lyrics::Ly
     run(app, "load_lyrics", move |db| crate::lyrics::load(&db, &id)).await
 }
 
+/// 按歌曲 ID 读取标签详情，复用目录授权和后台线程，避免阻塞播放界面。
+#[tauri::command]
+pub async fn load_track_info(
+    app: AppHandle,
+    id: String,
+) -> Result<Vec<(&'static str, String)>, String> {
+    run(app, "load_track_info", move |db| {
+        crate::track_info::load(&db, &id)
+    })
+    .await
+}
+
 /// 调用系统文件管理器；路径使用独立参数传入，不经过 shell 解析。
 #[tauri::command]
 pub async fn open_directory(app: AppHandle, id: String) -> Result<(), String> {
