@@ -158,7 +158,10 @@ tbody tr.current { background: var(--accent-soft); }
 .batch { margin-bottom: 12px; padding: 9px 12px; background: var(--accent-soft); display: flex; justify-content: space-between; align-items: center; border-radius: 6px; font-size: 12px; gap: 8px; }
 .empty { text-align: center; padding: 50px 15px; color: var(--muted); line-height: 2; }
 .empty svg { width: 32px; height: 32px; display: block; margin: 0 auto 12px; }
-.right-panel { border-left: 1px solid var(--line); padding-left: 26px; min-width: 0; }
+/* 留出播放器、顶部工具栏和内容底边距；右栏滚动时留在视口内。 */
+.right-panel { border-left: 1px solid var(--line); padding-left: 26px; min-width: 0; position: sticky; top: 16px; align-self: start; height: calc(100dvh - 96px - 76px - 25px); display: flex; flex-direction: column; }
+.right-panel > .right-title, .right-panel > #now-info { flex-shrink: 0; }
+#inline-lyrics-slot { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .right-title { margin: 3px 0 24px; display: flex; align-items: center; justify-content: space-between; font-size: 12px; color: var(--secondary); }
 .right-title span { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
 .now-info { margin-top: 20px; display: flex; align-items: center; gap: 7px; }
@@ -297,8 +300,17 @@ details { margin-top:14px; color:var(--muted); font-size:12px; } details li { ov
 .lyrics-actions > button { flex-shrink: 0; }
 [data-action="follow-lyrics"][aria-pressed="true"] { color: var(--accent); }
 .lyrics-body { position: relative; overflow-y: auto; overflow-anchor: none; overscroll-behavior: contain; scrollbar-gutter: stable; flex: 1; min-height: 0; padding: 20px 0; color: var(--muted); font-size: 14px; line-height: 1.9; overflow-wrap: anywhere; }
-.lyric-line { display: block; width: 100%; text-align: center; padding: 12px 8px; white-space: pre-wrap; line-height: 1.8; border-radius: 5px; font-weight: 500; transition: background .12s; }
-.lyric-line:hover { background: var(--hover); }.lyric-line.active { color: var(--accent); background: var(--accent-soft); }
+/* 只缩放内部文字，行高保持不变，避免高亮切换引发重新换行和滚动跳动。 */
+.lyric-line { display: block; width: 100%; text-align: center; padding: 14px 10px; white-space: pre-wrap; line-height: 1.9; border-radius: 5px; font-weight: 600; color: var(--secondary); opacity: .46; transition: color .45s ease, opacity .45s ease; }
+.lyric-line > span { display: block; transform: scale(.94); transform-origin: center; transition: transform .65s cubic-bezier(.22, 1, .36, 1); }
+.lyric-line:has(+ .active), .lyric-line.active + .lyric-line { opacity: .72; }
+.lyric-line:hover, .lyric-line:focus-visible { color: var(--text); opacity: 1; }
+.lyric-line.active { color: var(--text); background: transparent; opacity: 1; }
+.lyric-line.active > span { transform: scale(1.04); }
+body[data-theme="light"] .lyric-line.active { color: var(--accent); }
+/* 渐隐固定在视口边缘，保留中间文字清晰度；普通文本和错误信息不遮罩。 */
+.lyrics-body[data-timed="true"] { scrollbar-width: none; -webkit-mask-image: linear-gradient(to bottom, transparent, #000 12%, #000 84%, transparent); mask-image: linear-gradient(to bottom, transparent, #000 12%, #000 84%, transparent); }
+.lyrics-body[data-timed="true"]::-webkit-scrollbar { display: none; }
 .plain-lyrics { margin: 0; white-space: pre-wrap; text-align: center; }
 
 /* 两款皮肤共用右侧歌词；窄窗口复用同一节点，避免出现重复面板。 */
@@ -306,12 +318,14 @@ details { margin-top:14px; color:var(--muted); font-size:12px; } details li { ov
 .inline-lyrics .detail-heading { gap: 4px; margin-bottom: 4px; }
 .inline-lyrics .detail-heading > span { flex: 1; }
 .inline-lyrics .text-btn { font-size: 11px; }
-.inline-lyrics .lyrics-body { height: 290px; font-size: 12px; padding: 14px 0; }
-.inline-lyrics .lyric-line { padding: 10px 5px; }
+.inline-lyrics .lyrics-body { height: 290px; font-size: 14px; padding: 14px 0; }
+.right-panel .inline-lyrics { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.right-panel .inline-lyrics .lyrics-body { height: auto; }
+.inline-lyrics .detail-heading { flex-shrink: 0; }
 .library > .inline-lyrics { margin: 0 0 16px; padding: 10px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
 .library > .inline-lyrics .detail-heading { margin-bottom: 2px; }
 .library > .inline-lyrics .lyrics-actions { padding-bottom: 4px; }
-.library > .inline-lyrics .lyrics-body { height: 80px; padding: 4px 0; }
+.library > .inline-lyrics .lyrics-body { height: 112px; padding: 4px 0; }
 
 /* 微调只作用于当前歌曲，中间显示偏移并可复位。 */
 .lyrics-timing { display: flex; align-items: center; justify-content: space-between; gap: 4px; padding-top: 6px; }

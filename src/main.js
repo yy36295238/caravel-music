@@ -3,7 +3,8 @@ import { listen } from '@tauri-apps/api/event';
 import './styles.css';
 import { initUpdater, renderUpdater, checkForUpdates, installUpdate } from './updater.js';
 import { matching, collections, albumKey, albumName, artistName, musicFolders } from './library.js';
-import { parseLyrics, activeLyricIndex, lyricScrollTop, lyricSeekTime } from './lyrics.js';
+import { parseLyrics, activeLyricIndex, lyricSeekTime } from './lyrics.js';
+import { centerLyric, observeLyricView, resetLyricView, stopLyricScroll } from './lyrics-view.js';
 import { playbackSnapshot } from './menu-state.js';
 import { coverImage, refreshCovers, showTrackInfo } from './track-info.js';
 
@@ -368,6 +369,7 @@ async function loadLyrics() {
   renderLyricOffset();
   $('#lyrics-source').textContent = track ? `${artistName(track)} · ${albumName(track)}` : '';
   for (const view of document.querySelectorAll('[data-lyric-view]')) {
+    resetLyricView(view);
     setLyricsFollow(view, true);
     view.textContent = track ? '正在读取歌词…' : '播放一首歌曲，查看歌词。';
     view.scrollTo({ top: 0, behavior: 'auto' });
@@ -380,7 +382,7 @@ async function loadLyrics() {
     lyricLines = parsed.lines;
     renderLyricOffset();
     $('#lyrics-source').textContent = result.source ? `${artistName(track)} · ${result.source}` : artistName(track);
-    const html = lyricLines.length ? lyricLines.map((line, index) => `<button class="lyric-line" data-action="lyric-seek" data-index="${index}" aria-label="跳转至这句歌词：${esc(line.text)}">${esc(line.text)}</button>`).join('') : `<p class="plain-lyrics">${esc(parsed.text || '暂无本地歌词\n可在 MP3 同目录放置同名 .lrc 文件，或使用内嵌歌词，然后在歌词“更多”中点击“重新读取”。')}</p>`;
+    const html = lyricLines.length ? lyricLines.map((line, index) => `<button class="lyric-line" data-action="lyric-seek" data-index="${index}" aria-label="跳转至这句歌词：${esc(line.text)}"><span>${esc(line.text)}</span></button>`).join('') : `<p class="plain-lyrics">${esc(parsed.text || '暂无本地歌词\n可在 MP3 同目录放置同名 .lrc 文件，或使用内嵌歌词，然后在歌词“更多”中点击“重新读取”。')}</p>`;
     document.querySelectorAll('[data-lyric-view]').forEach(view => { view.innerHTML = html; });
     syncLyrics(true); updateLyricsClock();
   } catch (error) {
@@ -399,17 +401,20 @@ function syncLyrics(immediate = false) {
     view.querySelector('.active')?.classList.remove('active');
     view.querySelector('[aria-current]')?.removeAttribute('aria-current');
     const line = view.children[index];
-    if (!line) continue;
+    if (!line) {
+      if (view.dataset.follow !== 'false') centerLyric(view, view.firstElementChild, true);
+      continue;
+    }
     line.classList.add('active'); line.setAttribute('aria-current', 'true');
     if (view.dataset.follow !== 'false' && view.clientHeight) {
-      view.scrollTo({ top: lyricScrollTop(line.offsetTop, line.offsetHeight, view.clientHeight, view.scrollHeight),
-        behavior: immediate || reducedMotion.matches ? 'auto' : 'smooth' });
+      centerLyric(view, line, immediate);
     }
   }
 }
 // 手动浏览暂停歌词跟随，不影响音频播放。
 function setLyricsFollow(view, follow) {
   view.dataset.follow = String(follow);
+  if (!follow) stopLyricScroll(view);
   const button = document.querySelector(`[data-action="follow-lyrics"][data-target="${view.id}"]`);
   button.setAttribute('aria-pressed', String(follow));
   // 正常播放不重复展示状态文字，手动浏览后才提供恢复跟随入口。
@@ -432,7 +437,7 @@ function setLyricsVisible(visible) {
   $('.lyrics-toggle').setAttribute('aria-expanded', String(visible));
   $('.lyrics-toggle').setAttribute('aria-label', visible ? '关闭歌词' : '显示歌词');
   if (visible) syncLyrics(true);
-  else $('.lyrics-toggle').focus();
+  else { stopLyricScroll($('#inline-lyrics-body')); $('.lyrics-toggle').focus(); }
   updateLyricsClock();
 }
 /** 切换浏览范围时清理不相干的分类条件，已经播放的队列保持不变。 */
@@ -788,7 +793,11 @@ function bindEvents() {
     if (Date.now() - savedAt > 5000) { void persist().catch(() => {}); savedAt = Date.now(); }
   });
   for (const event of ['playing', 'pause', 'ended', 'emptied', 'error']) audio.addEventListener(event, updateLyricsClock);
-  document.addEventListener('visibilitychange', updateLyricsClock);
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) stopLyricScroll($('#inline-lyrics-body'));
+    else syncLyrics(true);
+    updateLyricsClock();
+  });
   audio.addEventListener('play', renderPlayer);
   audio.addEventListener('pause', renderPlayer);
   audio.addEventListener('ended', renderPlayer);
@@ -799,6 +808,7 @@ function bindEvents() {
   audio.addEventListener('error', () => { console.warn('媒体读取失败', { code: audio.error?.code }); renderPlayer(); toast('音频读取失败，请检查文件或目录后刷新曲库'); });
   audio.addEventListener('seeking', () => syncLyrics(true));
   for (const view of document.querySelectorAll('[data-lyric-view]')) {
+    observeLyricView(view);
     view.addEventListener('wheel', () => setLyricsFollow(view, false), { passive: true });
     view.addEventListener('touchstart', () => setLyricsFollow(view, false), { passive: true });
     view.addEventListener('keydown', event => {
